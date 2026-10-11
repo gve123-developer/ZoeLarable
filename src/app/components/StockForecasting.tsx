@@ -43,7 +43,7 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
 
     const [selectedProductAnalysis, setSelectedProductAnalysis] = useState<any>(null);
     const [demandTab, setDemandTab] = useState<'High Demand' | 'Medium Demand' | 'Low Demand'>('High Demand');
-    const [evaluationPeriod, setEvaluationPeriod] = useState<'90_days' | 'july_august' | 'all'>('90_days');
+    const [evaluationPeriod, setEvaluationPeriod] = useState<'90_days' | 'all'>('90_days');
     const [productMetrics, setProductMetrics] = useState<any[]>([]);
 
     useEffect(() => {
@@ -53,13 +53,6 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
     const evaluationTransactions = useMemo(() => {
         if (evaluationPeriod === '90_days') {
             return forecast90dData as unknown as Transaction[];
-        }
-        if (evaluationPeriod === 'july_august') {
-            const filtered = transactions.filter(t => {
-                const dateStr = t.date.slice(0, 10);
-                return dateStr >= '2026-07-02' && dateStr <= '2026-08-25';
-            });
-            return filtered.length > 0 ? filtered : transactions;
         }
         return transactions;
     }, [transactions, evaluationPeriod]);
@@ -407,21 +400,14 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
                                                         onClick={() => setEvaluationPeriod('90_days')}
                                                         className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${evaluationPeriod === '90_days' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:text-gray-900'}`}
                                                     >
-                                                        May 28 – Aug 25 (90-Day Research Horizon)
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setEvaluationPeriod('july_august')}
-                                                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${evaluationPeriod === 'july_august' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:text-gray-900'}`}
-                                                    >
-                                                        Jul 2 – Aug 25 (55 Days)
+                                                        90 Days (May 28 – Aug 25)
                                                     </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => setEvaluationPeriod('all')}
                                                         className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${evaluationPeriod === 'all' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:text-gray-900'}`}
                                                     >
-                                                        All Transactions
+                                                        All Live Transactions
                                                     </button>
                                                 </div>
                                             </div>
@@ -431,11 +417,11 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
                                         <div className="bg-blue-50/70 border border-blue-200/80 rounded-xl p-3 text-xs text-blue-900 flex items-start gap-2.5">
                                             <Info className="size-4 text-blue-600 shrink-0 mt-0.5" />
                                             <div className="space-y-0.5">
-                                                <span className="font-bold">Evaluation Dataset Transparency:</span>
+                                                <span className="font-bold">Evaluation Dataset Horizon (90 Days):</span>
                                                 <p className="text-[11px] text-blue-800">
                                                     {evaluationPeriod === '90_days'
-                                                        ? 'Active dataset covers 90 calendar days (May 28 – August 25, 2026). August 3–25 represents actual observed store checkout records, while May 28–August 2 provides calibrated historical baseline sales for initial model training (W=21 days).'
-                                                        : 'Active dataset covers 55 calendar days (July 2 – August 25, 2026). August 3–25 represents actual observed store checkout records, while July 2–August 2 provides calibrated historical baseline sales for model training.'}
+                                                        ? 'Active evaluation dataset covers a complete 90 calendar day horizon (May 28 – August 25, 2026). Baseline model training uses W=21 days (SMA 3-week window), evaluated day-by-day across all active store SKUs.'
+                                                        : 'Displaying evaluation computed from all available live store transaction records.'}
                                                 </p>
                                             </div>
                                         </div>
