@@ -4388,8 +4388,8 @@
       "status": "COMPLETED",
       "items": [
         {
-          "sku": "SKU-00049",
-          "name": "AMOXICILLIN Cap 250mg (Benedex)",
+          "sku": "SKU-00050",
+          "name": "RITEMED Amoxicillin 500mg",
           "category": "Pharmaceutical",
           "qty": 2,
           "unit_cost": 16.0,
@@ -4553,8 +4553,8 @@
           "status": "COMPLETED"
         },
         {
-          "sku": "SKU-00049",
-          "name": "AMOXICILLIN Cap 250mg (Benedex)",
+          "sku": "SKU-00050",
+          "name": "RITEMED Amoxicillin 500mg",
           "category": "Pharmaceutical",
           "qty": 1,
           "unit_cost": 16.0,
@@ -4608,8 +4608,8 @@
           "status": "COMPLETED"
         },
         {
-          "sku": "SKU-00049",
-          "name": "AMOXICILLIN Cap 250mg (Benedex)",
+          "sku": "SKU-00050",
+          "name": "RITEMED Amoxicillin 500mg",
           "category": "Pharmaceutical",
           "qty": 1,
           "unit_cost": 16.0,
@@ -5928,8 +5928,8 @@
           "status": "COMPLETED"
         },
         {
-          "sku": "SKU-00049",
-          "name": "AMOXICILLIN Cap 250mg (Benedex)",
+          "sku": "SKU-00050",
+          "name": "RITEMED Amoxicillin 500mg",
           "category": "Pharmaceutical",
           "qty": 2,
           "unit_cost": 16.0,
@@ -5994,8 +5994,8 @@
       "status": "COMPLETED",
       "items": [
         {
-          "sku": "SKU-00049",
-          "name": "AMOXICILLIN Cap 250mg (Benedex)",
+          "sku": "SKU-00050",
+          "name": "RITEMED Amoxicillin 500mg",
           "category": "Pharmaceutical",
           "qty": 1,
           "unit_cost": 16.0,
@@ -6093,8 +6093,8 @@
           "status": "COMPLETED"
         },
         {
-          "sku": "SKU-00049",
-          "name": "AMOXICILLIN Cap 250mg (Benedex)",
+          "sku": "SKU-00050",
+          "name": "RITEMED Amoxicillin 500mg",
           "category": "Pharmaceutical",
           "qty": 1,
           "unit_cost": 16.0,
