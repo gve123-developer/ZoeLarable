@@ -31,6 +31,7 @@ interface StockForecastingProps {
 
 import { getForecast, calculateDailyAccuracyMetrics, formatDurationLeft } from '@/app/utils/forecastingUtils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
+import forecast90dData from '@/app/data/forecast_90d_transactions.json';
 
 export function StockForecasting({ products, transactions }: StockForecastingProps) {
     const [searchTerm, setSearchTerm] = useState('');
@@ -42,7 +43,7 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
 
     const [selectedProductAnalysis, setSelectedProductAnalysis] = useState<any>(null);
     const [demandTab, setDemandTab] = useState<'High Demand' | 'Medium Demand' | 'Low Demand'>('High Demand');
-    const [evaluationPeriod, setEvaluationPeriod] = useState<'july_august' | 'all'>('july_august');
+    const [evaluationPeriod, setEvaluationPeriod] = useState<'90_days' | 'july_august' | 'all'>('90_days');
     const [productMetrics, setProductMetrics] = useState<any[]>([]);
 
     useEffect(() => {
@@ -50,6 +51,9 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
     }, [searchTerm]);
 
     const evaluationTransactions = useMemo(() => {
+        if (evaluationPeriod === '90_days') {
+            return forecast90dData as unknown as Transaction[];
+        }
         if (evaluationPeriod === 'july_august') {
             const filtered = transactions.filter(t => {
                 const dateStr = t.date.slice(0, 10);
@@ -84,17 +88,45 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
         let totalSmaRmse = 0;
         let totalEsMape = 0;
         let totalSmaMape = 0;
+        let mapeCount = 0;
+        let totalDemand = 0;
+        let totalEsAbsError = 0;
+        let totalSmaAbsError = 0;
+
+        let esMaeWins = 0, smaMaeWins = 0;
+        let esRmseWins = 0, smaRmseWins = 0;
 
         evaluatedProducts.forEach(pm => {
             const es = pm.metrics.exponentialSmoothing;
             const sma = pm.metrics.sma;
 
-            totalEsMae += typeof es.maeRaw === 'number' ? es.maeRaw : (parseFloat(es.mae) || 0);
-            totalSmaMae += typeof sma.maeRaw === 'number' ? sma.maeRaw : (parseFloat(sma.mae) || 0);
-            totalEsRmse += typeof es.rmseRaw === 'number' ? es.rmseRaw : (parseFloat(es.rmse) || 0);
-            totalSmaRmse += typeof sma.rmseRaw === 'number' ? sma.rmseRaw : (parseFloat(sma.rmse) || 0);
-            totalEsMape += typeof es.mapeRaw === 'number' ? es.mapeRaw : (parseFloat(es.mape) || 0);
-            totalSmaMape += typeof sma.mapeRaw === 'number' ? sma.mapeRaw : (parseFloat(sma.mape) || 0);
+            const esMae = typeof es.maeRaw === 'number' ? es.maeRaw : (parseFloat(es.mae) || 0);
+            const smaMae = typeof sma.maeRaw === 'number' ? sma.maeRaw : (parseFloat(sma.mae) || 0);
+            const esRmse = typeof es.rmseRaw === 'number' ? es.rmseRaw : (parseFloat(es.rmse) || 0);
+            const smaRmse = typeof sma.rmseRaw === 'number' ? sma.rmseRaw : (parseFloat(sma.rmse) || 0);
+
+            totalEsMae += esMae;
+            totalSmaMae += smaMae;
+            totalEsRmse += esRmse;
+            totalSmaRmse += smaRmse;
+
+            if (esMae < smaMae) esMaeWins++;
+            else if (smaMae < esMae) smaMaeWins++;
+
+            if (esRmse < smaRmse) esRmseWins++;
+            else if (smaRmse < esRmse) smaRmseWins++;
+
+            if (typeof es.mapeRaw === 'number' && typeof sma.mapeRaw === 'number') {
+                totalEsMape += es.mapeRaw;
+                totalSmaMape += sma.mapeRaw;
+                mapeCount++;
+            }
+
+            if (pm.metrics.totalTestDemand > 0) {
+                totalDemand += pm.metrics.totalTestDemand;
+                totalEsAbsError += esMae * pm.metrics.testDaysCount;
+                totalSmaAbsError += smaMae * pm.metrics.testDaysCount;
+            }
         });
 
         const n = evaluatedProducts.length;
@@ -102,23 +134,34 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
         const smaMeanMae = totalSmaMae / n;
         const esMeanRmse = totalEsRmse / n;
         const smaMeanRmse = totalSmaRmse / n;
-        const esMeanMape = totalEsMape / n;
-        const smaMeanMape = totalSmaMape / n;
+        const esMeanMape = mapeCount > 0 ? (totalEsMape / mapeCount) : 0;
+        const smaMeanMape = mapeCount > 0 ? (totalSmaMape / mapeCount) : 0;
+
+        const esOverallWape = totalDemand > 0 ? (totalEsAbsError / totalDemand) * 100 : 0;
+        const smaOverallWape = totalDemand > 0 ? (totalSmaAbsError / totalDemand) * 100 : 0;
 
         return {
             evaluatedCount: n,
+            activeMapeCount: mapeCount,
             esMeanMae: esMeanMae.toFixed(3),
             smaMeanMae: smaMeanMae.toFixed(3),
             esMeanRmse: esMeanRmse.toFixed(3),
             smaMeanRmse: smaMeanRmse.toFixed(3),
             esMeanMape: esMeanMape.toFixed(2) + '%',
             smaMeanMape: smaMeanMape.toFixed(2) + '%',
+            esOverallWape: esOverallWape.toFixed(2) + '%',
+            smaOverallWape: smaOverallWape.toFixed(2) + '%',
+            esMaeWins,
+            smaMaeWins,
+            esRmseWins,
+            smaRmseWins,
             maeDiff: Math.abs(esMeanMae - smaMeanMae).toFixed(3),
             rmseDiff: Math.abs(esMeanRmse - smaMeanRmse).toFixed(3),
             mapeDiff: Math.abs(esMeanMape - smaMeanMape).toFixed(2) + '%',
             maeWinner: esMeanMae <= smaMeanMae ? 'Custom Algorithm (Exp. Smoothing)' : 'Simple Moving Average (SMA)',
             rmseWinner: esMeanRmse <= smaMeanRmse ? 'Custom Algorithm (Exp. Smoothing)' : 'Simple Moving Average (SMA)',
             mapeWinner: esMeanMape <= smaMeanMape ? 'Custom Algorithm (Exp. Smoothing)' : 'Simple Moving Average (SMA)',
+            wapeWinner: esOverallWape <= smaOverallWape ? 'Custom Algorithm (Exp. Smoothing)' : 'Simple Moving Average (SMA)',
             overallWinner: (esMeanMae <= smaMeanMae || esMeanMape <= smaMeanMape)
                 ? 'Custom Algorithm (Exponential Smoothing, α = 0.7)'
                 : 'Simple Moving Average (SMA)'
@@ -216,77 +259,129 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
                                                 </LineChart>
                                             </ResponsiveContainer>
                                         </div>
-
                                         {selectedProductAnalysis.metrics.sma ? (
                                             <>
-                                                <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                                                {/* Notice for single product */}
+                                                <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 flex items-center gap-2 font-medium">
+                                                    <Info className="size-4 text-amber-600 shrink-0" />
+                                                    <span>
+                                                        Evaluated over {selectedProductAnalysis.metrics.testDaysCount} test days ({selectedProductAnalysis.metrics.activeTestDaysCount} active non-zero sales days, {selectedProductAnalysis.metrics.totalTestDemand} units total test demand). 
+                                                        Comparison preserves real zero-demand days and uses identical test dates for both algorithms.
+                                                    </span>
+                                                </div>
+
+                                                <div className="border border-gray-200 rounded-xl overflow-hidden shadow-xs bg-white">
                                                     <Table>
                                                         <TableHeader>
                                                             <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-4">Forecasting Model</TableHead>
-                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-4">MAE (Abs. Error)</TableHead>
-                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-4">RMSE (Sq. Error)</TableHead>
-                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-4">MAPE (Percentage)</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3.5">Forecasting Model</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3.5">MAE (Abs. Error)</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3.5">RMSE (Sq. Error)</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3.5">MAPE (Active Days)</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3.5">WAPE (Weighted)</TableHead>
                                                             </TableRow>
                                                         </TableHeader>
                                                         <TableBody>
                                                             <TableRow className="hover:bg-indigo-50/30 transition-colors">
-                                                                <TableCell className="font-black text-indigo-700">Custom Algorithm (Exp. Smoothing)</TableCell>
-                                                                <TableCell className="font-medium">{selectedProductAnalysis.metrics.exponentialSmoothing.mae}</TableCell>
-                                                                <TableCell className="font-medium">{selectedProductAnalysis.metrics.exponentialSmoothing.rmse}</TableCell>
+                                                                <TableCell className="font-black text-indigo-700">Custom Algorithm (Exp. Smoothing, α=0.7)</TableCell>
+                                                                <TableCell className="font-bold text-gray-900">{selectedProductAnalysis.metrics.exponentialSmoothing.mae} units</TableCell>
+                                                                <TableCell className="font-bold text-gray-900">{selectedProductAnalysis.metrics.exponentialSmoothing.rmse} units</TableCell>
                                                                 <TableCell className="font-bold text-gray-900">{selectedProductAnalysis.metrics.exponentialSmoothing.mape}</TableCell>
+                                                                <TableCell className="font-bold text-indigo-700">{selectedProductAnalysis.metrics.exponentialSmoothing.wape}</TableCell>
                                                             </TableRow>
                                                             <TableRow className="hover:bg-gray-50 transition-colors">
-                                                                <TableCell className="font-black text-gray-600">Simple Moving Average (SMA)</TableCell>
-                                                                <TableCell className="font-medium text-gray-500">{selectedProductAnalysis.metrics.sma.mae}</TableCell>
-                                                                <TableCell className="font-medium text-gray-500">{selectedProductAnalysis.metrics.sma.rmse}</TableCell>
-                                                                <TableCell className="font-bold text-gray-600">{selectedProductAnalysis.metrics.sma.mape}</TableCell>
+                                                                <TableCell className="font-black text-gray-600">Simple Moving Average (SMA, 3-Wk)</TableCell>
+                                                                <TableCell className="font-medium text-gray-700">{selectedProductAnalysis.metrics.sma.mae} units</TableCell>
+                                                                <TableCell className="font-medium text-gray-700">{selectedProductAnalysis.metrics.sma.rmse} units</TableCell>
+                                                                <TableCell className="font-medium text-gray-700">{selectedProductAnalysis.metrics.sma.mape}</TableCell>
+                                                                <TableCell className="font-medium text-gray-700">{selectedProductAnalysis.metrics.sma.wape}</TableCell>
                                                             </TableRow>
                                                         </TableBody>
                                                     </Table>
                                                 </div>
 
-                                                <h4 className="font-bold text-gray-900 flex items-center gap-2 mt-8 mb-4">
-                                                    <Calculator className="size-5 text-indigo-600" /> Day-by-Day Computation
+                                                {/* Metric-by-metric product winners */}
+                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                                                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-500">MAE Winner</p>
+                                                        <p className="text-xs font-black text-gray-900 mt-1">
+                                                            {selectedProductAnalysis.metrics.exponentialSmoothing.maeRaw < selectedProductAnalysis.metrics.sma.maeRaw
+                                                                ? 'Custom Algo (ES)'
+                                                                : selectedProductAnalysis.metrics.sma.maeRaw < selectedProductAnalysis.metrics.exponentialSmoothing.maeRaw
+                                                                    ? 'Simple Moving Avg'
+                                                                    : 'Tie'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                                                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-500">RMSE Winner</p>
+                                                        <p className="text-xs font-black text-gray-900 mt-1">
+                                                            {selectedProductAnalysis.metrics.exponentialSmoothing.rmseRaw < selectedProductAnalysis.metrics.sma.rmseRaw
+                                                                ? 'Custom Algo (ES)'
+                                                                : selectedProductAnalysis.metrics.sma.rmseRaw < selectedProductAnalysis.metrics.exponentialSmoothing.rmseRaw
+                                                                    ? 'Simple Moving Avg'
+                                                                    : 'Tie'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                                                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-500">MAPE Winner</p>
+                                                        <p className="text-xs font-black text-gray-900 mt-1">
+                                                            {selectedProductAnalysis.metrics.exponentialSmoothing.mapeRaw !== null && selectedProductAnalysis.metrics.sma.mapeRaw !== null
+                                                                ? (selectedProductAnalysis.metrics.exponentialSmoothing.mapeRaw < selectedProductAnalysis.metrics.sma.mapeRaw
+                                                                    ? 'Custom Algo (ES)'
+                                                                    : selectedProductAnalysis.metrics.sma.mapeRaw < selectedProductAnalysis.metrics.exponentialSmoothing.mapeRaw
+                                                                        ? 'Simple Moving Avg'
+                                                                        : 'Tie')
+                                                                : 'N/A (0 sales)'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                                                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-500">WAPE Winner</p>
+                                                        <p className="text-xs font-black text-gray-900 mt-1">
+                                                            {selectedProductAnalysis.metrics.exponentialSmoothing.wapeRaw !== null && selectedProductAnalysis.metrics.sma.wapeRaw !== null
+                                                                ? (selectedProductAnalysis.metrics.exponentialSmoothing.wapeRaw < selectedProductAnalysis.metrics.sma.wapeRaw
+                                                                    ? 'Custom Algo (ES)'
+                                                                    : selectedProductAnalysis.metrics.sma.wapeRaw < selectedProductAnalysis.metrics.exponentialSmoothing.wapeRaw
+                                                                        ? 'Simple Moving Avg'
+                                                                        : 'Tie')
+                                                                : 'N/A (0 sales)'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <h4 className="font-bold text-gray-900 flex items-center gap-2 mt-6 mb-3">
+                                                    <Calculator className="size-5 text-indigo-600" /> Day-by-Day Historical Demand and Forecast Errors
                                                 </h4>
-                                                <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm mb-6">
+                                                <div className="border border-gray-200 rounded-xl overflow-hidden shadow-xs mb-6">
                                                     <Table>
                                                         <TableHeader>
                                                             <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-4">Period (Date)</TableHead>
-                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-4">Actual Demand</TableHead>
-                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-4">SMA Forecast</TableHead>
-                                                                <TableHead className="font-bold text-indigo-700 uppercase tracking-wider text-xs py-4">Exp. Smoothing Forecast</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3">Period (Date)</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3 text-center">Actual Demand</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3 text-center">SMA Forecast</TableHead>
+                                                                <TableHead className="font-bold text-indigo-700 uppercase tracking-wider text-xs py-3 text-center">Exp. Smoothing Forecast</TableHead>
+                                                                <TableHead className="font-bold text-gray-700 uppercase tracking-wider text-xs py-3 text-center">SMA Error |e|</TableHead>
+                                                                <TableHead className="font-bold text-indigo-700 uppercase tracking-wider text-xs py-3 text-center">ES Error |e|</TableHead>
+                                                                <TableHead className="font-bold text-gray-800 uppercase tracking-wider text-xs py-3 text-center">Better Model</TableHead>
                                                             </TableRow>
                                                         </TableHeader>
                                                         <TableBody>
                                                             {selectedProductAnalysis.metrics.chartData.map((data: any, idx: number) => (
                                                                 <TableRow key={idx} className="hover:bg-gray-50 transition-colors">
-                                                                    <TableCell className="font-medium text-gray-600">{data.date}</TableCell>
-                                                                    <TableCell className="font-black text-gray-900">{data.Actual}</TableCell>
-                                                                    <TableCell className="font-medium text-gray-500">{data.SMA}</TableCell>
-                                                                    <TableCell className="font-black text-indigo-600">{data['Exp. Smoothing']}</TableCell>
+                                                                    <TableCell className="font-medium text-gray-700">{data.date}</TableCell>
+                                                                    <TableCell className="font-black text-gray-900 text-center">{data.Actual}</TableCell>
+                                                                    <TableCell className="font-medium text-gray-600 text-center">{data.SMA}</TableCell>
+                                                                    <TableCell className="font-black text-indigo-600 text-center">{data['Exp. Smoothing']}</TableCell>
+                                                                    <TableCell className="font-mono text-xs text-gray-600 text-center">{data.smaDiff ?? '-'}</TableCell>
+                                                                    <TableCell className="font-mono text-xs text-indigo-700 text-center">{data.esDiff ?? '-'}</TableCell>
+                                                                    <TableCell className="text-center">
+                                                                        <Badge className={`text-[10px] font-bold border-none ${data.diffAdvantage === 'ES' ? 'bg-indigo-100 text-indigo-800' : data.diffAdvantage === 'SMA' ? 'bg-gray-100 text-gray-700' : 'bg-gray-50 text-gray-500'}`}>
+                                                                            {data.diffAdvantage || 'Tie'}
+                                                                        </Badge>
+                                                                    </TableCell>
                                                                 </TableRow>
                                                             ))}
                                                         </TableBody>
                                                     </Table>
-                                                </div>
-
-                                                <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-8 flex flex-col items-center justify-center mt-6 shadow-sm relative overflow-hidden">
-                                                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-400 to-indigo-600"></div>
-                                                    <h4 className="text-xs font-black text-indigo-500 uppercase tracking-[0.2em] mb-2">Best Performing Model</h4>
-                                                    <p className="text-3xl font-black text-indigo-900 text-center tracking-tight">
-                                                        {selectedProductAnalysis.metrics.exponentialSmoothing.mapeRaw <= selectedProductAnalysis.metrics.sma.mapeRaw + 5
-                                                            ? "Custom Algorithm"
-                                                            : "Simple Moving Average (SMA)"}
-                                                    </p>
-                                                    <p className="text-sm text-indigo-600/80 font-medium mt-3 text-center px-4">
-                                                        {selectedProductAnalysis.metrics.exponentialSmoothing.mapeRaw < selectedProductAnalysis.metrics.sma.mapeRaw
-                                                            ? "Selected based on mathematically lower historical error rate (MAPE)."
-                                                            : selectedProductAnalysis.metrics.exponentialSmoothing.mapeRaw <= selectedProductAnalysis.metrics.sma.mapeRaw + 5
-                                                                ? "Selected due to superior adaptability to sudden demand shocks, despite a slight statistical tie with SMA."
-                                                                : "Selected based on significantly lower historical error rate."}
-                                                    </p>
                                                 </div>
                                             </>
                                         ) : (
@@ -309,10 +404,17 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
                                                 <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg border border-gray-200">
                                                     <button
                                                         type="button"
+                                                        onClick={() => setEvaluationPeriod('90_days')}
+                                                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${evaluationPeriod === '90_days' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:text-gray-900'}`}
+                                                    >
+                                                        May 28 – Aug 25 (90-Day Research Horizon)
+                                                    </button>
+                                                    <button
+                                                        type="button"
                                                         onClick={() => setEvaluationPeriod('july_august')}
                                                         className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${evaluationPeriod === 'july_august' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:text-gray-900'}`}
                                                     >
-                                                        Jul 2 – Aug 25, 2026 (55 Days)
+                                                        Jul 2 – Aug 25 (55 Days)
                                                     </button>
                                                     <button
                                                         type="button"
@@ -324,6 +426,46 @@ export function StockForecasting({ products, transactions }: StockForecastingPro
                                                 </div>
                                             </div>
                                         </DialogHeader>
+
+                                        {/* Data Source Notice Banner */}
+                                        <div className="bg-blue-50/70 border border-blue-200/80 rounded-xl p-3 text-xs text-blue-900 flex items-start gap-2.5">
+                                            <Info className="size-4 text-blue-600 shrink-0 mt-0.5" />
+                                            <div className="space-y-0.5">
+                                                <span className="font-bold">Evaluation Dataset Transparency:</span>
+                                                <p className="text-[11px] text-blue-800">
+                                                    {evaluationPeriod === '90_days'
+                                                        ? 'Active dataset covers 90 calendar days (May 28 – August 25, 2026). August 3–25 represents actual observed store checkout records, while May 28–August 2 provides calibrated historical baseline sales for initial model training (W=21 days).'
+                                                        : 'Active dataset covers 55 calendar days (July 2 – August 25, 2026). August 3–25 represents actual observed store checkout records, while July 2–August 2 provides calibrated historical baseline sales for model training.'}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Quick Product Inspection Selector */}
+                                        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                                            <div>
+                                                <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                                                    <Package className="size-4 text-indigo-600" /> Inspect Per-Product Forecast Details
+                                                </h4>
+                                                <p className="text-xs text-gray-500">Pick any product SKU from the inventory to view its isolated historical series, chart curves, and daily errors.</p>
+                                            </div>
+                                            <div className="w-full sm:w-72">
+                                                <select
+                                                    className="w-full h-10 px-3 text-xs font-bold border border-gray-200 rounded-lg bg-gray-50 hover:bg-white focus:bg-white focus:border-indigo-500 focus:outline-none transition-colors"
+                                                    onChange={(e) => {
+                                                        const found = productMetrics.find(pm => String(pm.product.id) === e.target.value);
+                                                        if (found) setSelectedProductAnalysis(found);
+                                                    }}
+                                                    defaultValue=""
+                                                >
+                                                    <option value="" disabled>-- Select a Product to Inspect --</option>
+                                                    {productMetrics.map(pm => (
+                                                         <option key={pm.product.id} value={pm.product.id}>
+                                                             {pm.product.sku} — {pm.product.name}
+                                                         </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
 
                                         {/* Overall Algorithm Benchmark Summary */}
                                         {overallAccuracy && (

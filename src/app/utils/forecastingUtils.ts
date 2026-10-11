@@ -288,14 +288,20 @@ export const calculateDailyAccuracyMetrics = (productId: string, transactions: T
     }
     const baseVelocity = Math.max(0.2, trainVelocity);
 
-    let smaErrors = { mapeSum: 0, maeSum: 0, rmseSum: 0, count: 0 };
-    let esErrors = { mapeSum: 0, maeSum: 0, rmseSum: 0, count: 0 };
+    // Error accumulators
+    // MAE and RMSE are evaluated across all test days (including 0 sales days)
+    // MAPE is evaluated only when actual > 0 to prevent division by zero
+    // WAPE = sum(|actual - forecast|) / sum(actual)
+    let smaErrors = { mapeSum: 0, mapeCount: 0, maeSum: 0, rmseSum: 0, totalDays: 0 };
+    let esErrors = { mapeSum: 0, mapeCount: 0, maeSum: 0, rmseSum: 0, totalDays: 0 };
+    let totalActualDemand = 0;
     let chartData = [];
 
     let esForecast = baseVelocity;
 
     for (let d = PRE_DAYS; d < TOTAL_DAYS; d++) {
         const actual = dailySales[d];
+        totalActualDemand += actual;
 
         // 3-Week Simple Moving Average (21 days)
         let smaSum = 0;
@@ -310,18 +316,25 @@ export const calculateDailyAccuracyMetrics = (productId: string, transactions: T
         }
         const effectiveEsForecast = Math.max(0.1, esForecast);
 
-        if (actual > 0) {
-            const smaDiff = Math.abs(actual - smaForecast);
-            smaErrors.mapeSum += (smaDiff / actual);
-            smaErrors.maeSum += smaDiff;
-            smaErrors.rmseSum += Math.pow(smaDiff, 2);
-            smaErrors.count++;
+        const smaDiff = Math.abs(actual - smaForecast);
+        const esDiff = Math.abs(actual - effectiveEsForecast);
 
-            const esDiff = Math.abs(actual - effectiveEsForecast);
+        // Record MAE and RMSE for all evaluation days
+        smaErrors.maeSum += smaDiff;
+        smaErrors.rmseSum += Math.pow(smaDiff, 2);
+        smaErrors.totalDays++;
+
+        esErrors.maeSum += esDiff;
+        esErrors.rmseSum += Math.pow(esDiff, 2);
+        esErrors.totalDays++;
+
+        // Record MAPE strictly when actual > 0
+        if (actual > 0) {
+            smaErrors.mapeSum += (smaDiff / actual);
+            smaErrors.mapeCount++;
+
             esErrors.mapeSum += (esDiff / actual);
-            esErrors.maeSum += esDiff;
-            esErrors.rmseSum += Math.pow(esDiff, 2);
-            esErrors.count++;
+            esErrors.mapeCount++;
         }
 
         const offsetDays = (TOTAL_DAYS - 1) - d;
@@ -334,11 +347,14 @@ export const calculateDailyAccuracyMetrics = (productId: string, transactions: T
             date: dateLabel,
             Actual: actual,
             SMA: parseFloat(smaForecast.toFixed(1)),
-            'Exp. Smoothing': parseFloat(effectiveEsForecast.toFixed(1))
+            'Exp. Smoothing': parseFloat(effectiveEsForecast.toFixed(1)),
+            smaDiff: parseFloat(smaDiff.toFixed(2)),
+            esDiff: parseFloat(esDiff.toFixed(2)),
+            diffAdvantage: smaDiff < esDiff ? 'SMA' : esDiff < smaDiff ? 'ES' : 'Tie'
         });
     }
 
-    if (smaErrors.count === 0 || esErrors.count === 0) {
+    if (smaErrors.totalDays === 0) {
         return {
             classification: demandClassification,
             avgDailyDemand: avgDailyDemand.toFixed(1),
@@ -348,33 +364,43 @@ export const calculateDailyAccuracyMetrics = (productId: string, transactions: T
         };
     }
 
-    const smaMape = (smaErrors.mapeSum / smaErrors.count) * 100;
-    const esMape = (esErrors.mapeSum / esErrors.count) * 100;
+    const smaMae = smaErrors.maeSum / smaErrors.totalDays;
+    const esMae = esErrors.maeSum / esErrors.totalDays;
 
-    let smaMae = (smaErrors.maeSum / smaErrors.count);
-    let smaRmse = Math.sqrt(smaErrors.rmseSum / smaErrors.count);
-    
-    let esMae = (esErrors.maeSum / esErrors.count);
-    let esRmse = Math.sqrt(esErrors.rmseSum / esErrors.count);
+    const smaRmse = Math.sqrt(smaErrors.rmseSum / smaErrors.totalDays);
+    const esRmse = Math.sqrt(esErrors.rmseSum / esErrors.totalDays);
+
+    const smaMape = smaErrors.mapeCount > 0 ? (smaErrors.mapeSum / smaErrors.mapeCount) * 100 : null;
+    const esMape = esErrors.mapeCount > 0 ? (esErrors.mapeSum / esErrors.mapeCount) * 100 : null;
+
+    const smaWape = totalActualDemand > 0 ? (smaErrors.maeSum / totalActualDemand) * 100 : null;
+    const esWape = totalActualDemand > 0 ? (esErrors.maeSum / totalActualDemand) * 100 : null;
 
     return {
         classification: demandClassification,
         avgDailyDemand: avgDailyDemand.toFixed(1),
+        totalTestDemand: totalActualDemand,
+        testDaysCount: smaErrors.totalDays,
+        activeTestDaysCount: smaErrors.mapeCount,
         sma: {
-            mape: smaMape.toFixed(2) + '%',
             mae: smaMae.toFixed(2),
             rmse: smaRmse.toFixed(2),
-            mapeRaw: smaMape,
+            mape: smaMape !== null ? smaMape.toFixed(2) + '%' : 'N/A (0 sales)',
+            wape: smaWape !== null ? smaWape.toFixed(2) + '%' : 'N/A (0 sales)',
             maeRaw: smaMae,
-            rmseRaw: smaRmse
+            rmseRaw: smaRmse,
+            mapeRaw: smaMape,
+            wapeRaw: smaWape
         },
         exponentialSmoothing: {
-            mape: esMape.toFixed(2) + '%',
             mae: esMae.toFixed(2),
             rmse: esRmse.toFixed(2),
-            mapeRaw: esMape,
+            mape: esMape !== null ? esMape.toFixed(2) + '%' : 'N/A (0 sales)',
+            wape: esWape !== null ? esWape.toFixed(2) + '%' : 'N/A (0 sales)',
             maeRaw: esMae,
-            rmseRaw: esRmse
+            rmseRaw: esRmse,
+            mapeRaw: esMape,
+            wapeRaw: esWape
         },
         chartData: chartData
     };
