@@ -318,54 +318,71 @@ try {
 
         /*
         |--------------------------------------------------------------------------
-        | FEFO-style two-batch depletion
+        | FEFO (First-Expired, First-Out) Depletion Logic
         |--------------------------------------------------------------------------
-        |
-        | Existing behavior preserved:
-        | - old/current batch consumed first
-        | - then new batch
+        | Depletes whichever batch expires first.
+        | If the old batch expires earlier (or same date, or new batch has no date),
+        | deduct from Old first (FIFO fallback).
+        | If the new batch expires earlier, deduct from New first.
         |--------------------------------------------------------------------------
         */
 
-        $takeFromOld =
-            min($qty, $oldQty);
+        $expiryDate = $product['expiry_date'];
+        $newStockExpiry = $product['new_stock_expiry'];
 
-        $remaining =
-            $qty - $takeFromOld;
+        // Determine if New Stock should be consumed first based on FEFO
+        $newStockExpiresFirst = false;
+        if ($newQty > 0 && !empty($newStockExpiry)) {
+            if ($oldQty <= 0 || empty($expiryDate)) {
+                $newStockExpiresFirst = true;
+            } else {
+                // Compare expiry dates (lexicographical comparison works for YYYY-MM-DD)
+                $oldTime = strtotime($expiryDate);
+                $newTime = strtotime($newStockExpiry);
+                if ($newTime !== false && $oldTime !== false && $newTime < $oldTime) {
+                    $newStockExpiresFirst = true;
+                }
+            }
+        }
 
-        $takeFromNew =
-            min($remaining, $newQty);
+        if ($newStockExpiresFirst) {
+            // New stock expires earlier: consume New first, then Old
+            $takeFromNew = min($qty, $newQty);
+            $remaining = $qty - $takeFromNew;
+            $takeFromOld = min($remaining, $oldQty);
 
-        $oldQty -= $takeFromOld;
-        $newQty -= $takeFromNew;
+            $newQty -= $takeFromNew;
+            $oldQty -= $takeFromOld;
+        } else {
+            // Old stock expires earlier or default FIFO: consume Old first, then New
+            $takeFromOld = min($qty, $oldQty);
+            $remaining = $qty - $takeFromOld;
+            $takeFromNew = min($remaining, $newQty);
 
-        $expiryDate =
-            $product['expiry_date'];
-
-        $newStockExpiry =
-            $product['new_stock_expiry'];
+            $oldQty -= $takeFromOld;
+            $newQty -= $takeFromNew;
+        }
 
         /*
         |--------------------------------------------------------------------------
-        | Auto rotation
+        | Auto rotation / Batch cleanup
         |--------------------------------------------------------------------------
-        |
-        | If old stock is fully depleted and new stock remains,
-        | promote the new stock into the primary batch.
+        | If old stock is 0 and new stock remains, promote new stock to primary.
+        | If new stock is 0, clear new_stock_expiry.
         |--------------------------------------------------------------------------
         */
 
         if ($oldQty <= 0 && $newQty > 0) {
-
             $oldQty = $newQty;
             $expiryDate = $newStockExpiry;
 
             $newQty = 0;
             $newStockExpiry = null;
 
-            error_log(
-                "[AUTO-ROTATE] Product ID $pid promoted from new stock."
-            );
+            error_log("[AUTO-ROTATE] Product ID $pid promoted from new stock.");
+        } elseif ($newQty <= 0) {
+            $newQty = 0;
+            $newStockExpiry = null;
         }
 
         /*

@@ -388,28 +388,59 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
             let totalToDeduct = cartItem.quantity;
             let currentOld = product.quantity;
             let currentNew = product.newStockQuantity || 0;
+            let expiryDate = product.expiryDate;
+            let newStockExpiry = product.newStockExpiry;
 
-            // Deduct from Old first
-            const takeFromOld = Math.min(totalToDeduct, currentOld);
-            currentOld -= takeFromOld;
-            totalToDeduct -= takeFromOld;
+            // Determine if New Stock should be consumed first based on FEFO
+            let newStockExpiresFirst = false;
+            if (currentNew > 0 && newStockExpiry) {
+              if (currentOld <= 0 || !expiryDate) {
+                newStockExpiresFirst = true;
+              } else {
+                const oldTime = new Date(expiryDate).getTime();
+                const newTime = new Date(newStockExpiry).getTime();
+                if (!isNaN(newTime) && !isNaN(oldTime) && newTime < oldTime) {
+                  newStockExpiresFirst = true;
+                }
+              }
+            }
 
-            // Deduct from New if anything left
-            const takeFromNew = Math.min(totalToDeduct, currentNew);
-            currentNew -= takeFromNew;
+            if (newStockExpiresFirst) {
+              // Deduct from New first, then Old
+              const takeFromNew = Math.min(totalToDeduct, currentNew);
+              currentNew -= takeFromNew;
+              totalToDeduct -= takeFromNew;
 
-            // Auto-Rotate: If Old is now 0, promote New to Old
+              const takeFromOld = Math.min(totalToDeduct, currentOld);
+              currentOld -= takeFromOld;
+            } else {
+              // Deduct from Old first, then New
+              const takeFromOld = Math.min(totalToDeduct, currentOld);
+              currentOld -= takeFromOld;
+              totalToDeduct -= takeFromOld;
+
+              const takeFromNew = Math.min(totalToDeduct, currentNew);
+              currentNew -= takeFromNew;
+            }
+
+            // Auto-Rotate: If Old is now 0 and New remains, promote New to Old
             if (currentOld <= 0 && currentNew > 0) {
               return {
                 ...product,
                 quantity: currentNew,
-                expiryDate: product.newStockExpiry || product.expiryDate,
+                expiryDate: newStockExpiry || expiryDate,
                 newStockQuantity: 0,
                 newStockExpiry: undefined
               };
             }
 
-            return { ...product, quantity: currentOld, newStockQuantity: currentNew };
+            return {
+              ...product,
+              quantity: currentOld,
+              expiryDate,
+              newStockQuantity: currentNew,
+              newStockExpiry: currentNew > 0 ? newStockExpiry : undefined
+            };
           }
           return product;
         });

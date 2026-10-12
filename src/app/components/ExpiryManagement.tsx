@@ -107,9 +107,22 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
     };
 
     const getActiveExpiryDate = (p: Product): string | undefined => {
-        if (Number(p.quantity) <= 0 && Number(p.newStockQuantity) > 0 && p.newStockExpiry) {
+        const hasOld = Number(p.quantity) > 0 && !!p.expiryDate;
+        const hasNew = Number(p.newStockQuantity || 0) > 0 && !!p.newStockExpiry;
+
+        if (hasOld && hasNew) {
+            const oldTime = new Date(p.expiryDate!).getTime();
+            const newTime = new Date(p.newStockExpiry!).getTime();
+            if (!isNaN(newTime) && !isNaN(oldTime) && newTime < oldTime) {
+                return p.newStockExpiry;
+            }
+            return p.expiryDate;
+        }
+
+        if (hasNew && !hasOld) {
             return p.newStockExpiry;
         }
+
         return p.expiryDate;
     };
 
