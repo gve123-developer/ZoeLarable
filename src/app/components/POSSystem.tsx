@@ -789,11 +789,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                                 <p className="text-xs text-gray-500 font-mono tracking-tighter">{product.sku}</p>
                               </div>
                               <div className="flex flex-col items-end gap-1">
-                                {allExpired ? (
-                                  <Badge variant="destructive" className="font-black text-[10px] uppercase tracking-widest">
-                                    EXPIRED
-                                  </Badge>
-                                ) : (
+                                {!allExpired && (
                                   <Badge variant={totalSellable > 0 ? 'default' : 'destructive'} className="font-black text-[10px] uppercase tracking-widest">
                                     {totalSellable > 0 ? `${totalSellable} AVAILABLE` : 'OUT OF STOCK'}
                                   </Badge>

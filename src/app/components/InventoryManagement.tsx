@@ -743,9 +743,6 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                           </TableCell>
                           <TableCell className="px-6 py-4 border-r border-gray-200 text-center">
                             <div className="flex flex-col items-center justify-center">
-                              {isDateExpired(product.expiryDate) && Number(product.quantity) > 0 && (
-                                <Badge variant="destructive" className="bg-red-600 text-white text-[9px] font-black h-4 px-1.5 mb-1 animate-pulse">EXPIRED</Badge>
-                              )}
                               <span className={`text-md font-black ${isDateExpired(product.expiryDate) && Number(product.quantity) > 0 ? 'text-red-600' : Number(product.quantity) === 0 ? 'text-red-600' : 'text-gray-900'}`}>{Number(product.quantity) === 0 ? '-' : product.quantity}</span>
                               <span className={`text-[9px] font-bold uppercase ${isDateExpired(product.expiryDate) && Number(product.quantity) > 0 ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {product.expiryDate || 'N/A'}</span>
                             </div>
@@ -753,9 +750,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                           <TableCell className="px-6 py-4 border-r border-gray-200 text-center">
                             {product.newStockQuantity && product.newStockQuantity > 0 ? (
                               <div className="flex flex-col items-center justify-center">
-                                {isDateExpired(product.newStockExpiry) ? (
-                                  <Badge variant="destructive" className="bg-red-600 text-white text-[9px] font-black h-4 px-1.5 mb-1 animate-pulse">EXPIRED</Badge>
-                                ) : (
+                                {!isDateExpired(product.newStockExpiry) && (
                                   <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[9px] font-black h-4 px-1.5 mb-1">NEW STOCK</Badge>
                                 )}
                                 <span className={`text-sm font-black ${isDateExpired(product.newStockExpiry) ? 'text-red-600' : 'text-blue-800'}`}>{product.newStockQuantity}</span>
