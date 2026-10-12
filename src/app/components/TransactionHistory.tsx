@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { User, Transaction } from '@/app/App';
 import { Card, CardContent, CardHeader, CardTitle } from '@/app/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/app/components/ui/table';
@@ -123,13 +123,17 @@ export function TransactionHistory({ currentUser }: TransactionHistoryProps) {
     }
   }, [transactionToVoid]);
 
+  const isFetchingRef = useRef(false);
+
   useEffect(() => {
     loadTransactions();
-    const interval = setInterval(loadTransactions, 5000); // Auto-refresh every 5 seconds
+    const interval = setInterval(loadTransactions, 3000); // Auto-refresh every 3 seconds
     return () => clearInterval(interval);
   }, []);
 
   const loadTransactions = async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const response = await fetch('/api/transactions.php');
       let data = await response.json();
@@ -139,6 +143,8 @@ export function TransactionHistory({ currentUser }: TransactionHistoryProps) {
       }
     } catch (error) {
       console.error("Error loading transactions:", error);
+    } finally {
+      isFetchingRef.current = false;
     }
   };
 

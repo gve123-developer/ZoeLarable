@@ -116,7 +116,10 @@ function App() {
       setCurrentUser(user);
     }
 
+    let isSyncing = false;
     const fetchData = async () => {
+      if (isSyncing) return;
+      isSyncing = true;
       try {
         const productsRes = await fetch('/api/products.php', {
           cache: 'no-store'
@@ -201,10 +204,12 @@ function App() {
             );
           }
         }
+      } finally {
+        isSyncing = false;
       }
     };
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Sync data every 30 seconds
+    const interval = setInterval(fetchData, 10000); // Sync data every 10 seconds
     return () => clearInterval(interval);
   }, []);
 
