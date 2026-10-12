@@ -186,9 +186,37 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
 
   const getDaysRemaining = (expiryDate: string | undefined): number | undefined => {
     if (!expiryDate) return undefined;
-    const expiry = new Date(expiryDate);
+    const cleanDate = expiryDate.includes('T') ? expiryDate : expiryDate + 'T00:00:00';
+    const expiry = new Date(cleanDate);
+    expiry.setHours(0, 0, 0, 0);
     const diffTime = expiry.getTime() - todayStart.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const isBatchExpired = (dateStr: string | undefined): boolean => {
+    if (!dateStr) return false;
+    const cleanDate = dateStr.includes('T') ? dateStr : dateStr + 'T00:00:00';
+    const expiry = new Date(cleanDate);
+    expiry.setHours(0, 0, 0, 0);
+    return expiry.getTime() < todayStart.getTime();
+  };
+
+  const getSellableStock = (product: Product) => {
+    const oldQty = Math.max(0, Number(product.quantity));
+    const newQty = Math.max(0, Number(product.newStockQuantity || 0));
+
+    const oldExpired = isBatchExpired(product.expiryDate);
+    const newExpired = isBatchExpired(product.newStockExpiry);
+
+    const oldSellable = oldExpired ? 0 : oldQty;
+    const newSellable = newExpired ? 0 : newQty;
+    const totalSellable = oldSellable + newSellable;
+    const totalPhysical = oldQty + newQty;
+
+    const hasExpiredBatch = (oldExpired && oldQty > 0) || (newExpired && newQty > 0);
+    const allExpired = totalPhysical > 0 && totalSellable === 0;
+
+    return { totalSellable, oldSellable, newSellable, oldExpired, newExpired, hasExpiredBatch, allExpired, totalPhysical };
   };
 
   // No local state for products needed
@@ -252,24 +280,23 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
   }, [products, searchQuery, filterCondition, filterBrand, selectedLetter, sortBy]);
 
   const addToCart = (product: Product) => {
-    const totalAvailable = Number(product.quantity) + Number(product.newStockQuantity || 0);
+    const { totalSellable, allExpired } = getSellableStock(product);
 
-    if (totalAvailable <= 0) {
-      toast.error('Product is out of stock');
+    if (allExpired) {
+      toast.error('Cannot sell: Product is expired!');
       return;
     }
 
-    const days = getDaysRemaining(product.expiryDate);
-    if (days !== undefined && days < 0) {
-      toast.error('This product is expired');
+    if (totalSellable <= 0) {
+      toast.error('Product is out of stock');
       return;
     }
 
     const existingItem = cart.find(item => item.product.id === product.id);
 
     if (existingItem) {
-      if (existingItem.quantity >= totalAvailable) {
-        toast.error('Not enough stock available');
+      if (existingItem.quantity >= totalSellable) {
+        toast.error(`Only ${totalSellable} non-expired units available`);
         return;
       }
       setCart([
@@ -289,10 +316,10 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
 
     if (newQuantity < 0) return;
 
-    const totalAvailable = Number(item.product.quantity) + Number(item.product.newStockQuantity || 0);
+    const { totalSellable } = getSellableStock(item.product);
 
-    if (newQuantity > totalAvailable) {
-      toast.error('Not enough stock available');
+    if (newQuantity > totalSellable) {
+      toast.error(`Cannot exceed ${totalSellable} non-expired units available`);
       return;
     }
 
@@ -391,36 +418,52 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
             let expiryDate = product.expiryDate;
             let newStockExpiry = product.newStockExpiry;
 
-            // Determine if New Stock should be consumed first based on FEFO
-            let newStockExpiresFirst = false;
-            if (currentNew > 0 && newStockExpiry) {
-              if (currentOld <= 0 || !expiryDate) {
-                newStockExpiresFirst = true;
+            const oldExpired = isBatchExpired(expiryDate);
+            const newExpired = isBatchExpired(newStockExpiry);
+
+            const sellableOld = oldExpired ? 0 : Math.max(0, currentOld);
+            const sellableNew = newExpired ? 0 : Math.max(0, currentNew);
+
+            // Determine if New Stock should be consumed first based on FEFO (valid batches only)
+            let consumeFromNewFirst = false;
+            if (sellableNew > 0 && sellableOld <= 0) {
+              consumeFromNewFirst = true;
+            } else if (sellableNew > 0 && sellableOld > 0) {
+              if (!expiryDate) {
+                consumeFromNewFirst = false;
+              } else if (!newStockExpiry) {
+                consumeFromNewFirst = false;
               } else {
-                const oldTime = new Date(expiryDate).getTime();
-                const newTime = new Date(newStockExpiry).getTime();
+                const oldTime = new Date(expiryDate.includes('T') ? expiryDate : expiryDate + 'T00:00:00').getTime();
+                const newTime = new Date(newStockExpiry.includes('T') ? newStockExpiry : newStockExpiry + 'T00:00:00').getTime();
                 if (!isNaN(newTime) && !isNaN(oldTime) && newTime < oldTime) {
-                  newStockExpiresFirst = true;
+                  consumeFromNewFirst = true;
                 }
               }
             }
 
-            if (newStockExpiresFirst) {
+            if (consumeFromNewFirst) {
               // Deduct from New first, then Old
-              const takeFromNew = Math.min(totalToDeduct, currentNew);
+              const takeFromNew = Math.min(totalToDeduct, sellableNew);
               currentNew -= takeFromNew;
               totalToDeduct -= takeFromNew;
 
-              const takeFromOld = Math.min(totalToDeduct, currentOld);
-              currentOld -= takeFromOld;
+              if (totalToDeduct > 0 && sellableOld > 0) {
+                const takeFromOld = Math.min(totalToDeduct, sellableOld);
+                currentOld -= takeFromOld;
+                totalToDeduct -= takeFromOld;
+              }
             } else {
               // Deduct from Old first, then New
-              const takeFromOld = Math.min(totalToDeduct, currentOld);
+              const takeFromOld = Math.min(totalToDeduct, sellableOld);
               currentOld -= takeFromOld;
               totalToDeduct -= takeFromOld;
 
-              const takeFromNew = Math.min(totalToDeduct, currentNew);
-              currentNew -= takeFromNew;
+              if (totalToDeduct > 0 && sellableNew > 0) {
+                const takeFromNew = Math.min(totalToDeduct, sellableNew);
+                currentNew -= takeFromNew;
+                totalToDeduct -= takeFromNew;
+              }
             }
 
             // Auto-Rotate: If Old is now 0 and New remains, promote New to Old
@@ -703,62 +746,71 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[600px] overflow-y-auto pr-2">
-                    {filteredProducts.map((product) => (
-                      <Card
-                        key={product.id}
-                        className="cursor-pointer hover:shadow-md transition-all border"
-                        style={{
-                          backgroundColor: product.category === 'Pharmaceutical' ? '#fafff0' : '#f0f7ff',
-                          borderColor: product.category === 'Pharmaceutical' ? '#54b768' : '#4169E1'
-                        }}
-                        onClick={() => addToCart(product)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex justify-between items-start mb-2">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h4 className="font-bold text-gray-900">{product.name.replace(/\*/g, '')}</h4>
-                                {isRxProduct(product) && (
-                                  <span
-                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider text-white shadow-xs shrink-0"
-                                    style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
-                                    title="Prescription Required (Rx)"
-                                  >
-                                    Rx
-                                  </span>
-                                )}
-                                {(() => {
-                                  const days = getDaysRemaining(product.expiryDate);
-                                  if (days !== undefined) {
-                                    if (days < 0) return <Badge variant="destructive" className="h-5 px-1.5 text-[10px] uppercase font-black animate-pulse">Expired</Badge>;
-                                    if (days <= 30) return <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase font-bold border-orange-500 text-orange-600 bg-orange-50">Expiring Soon</Badge>;
-                                  }
-                                  return null;
-                                })()}
-                              </div>
-                              <p className="text-xs text-gray-500 font-mono tracking-tighter">{product.sku}</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-1">
-                              {(() => {
-                                const total = Number(product.quantity) + Number(product.newStockQuantity || 0);
-                                return (
-                                  <Badge variant={total > 0 ? 'default' : 'destructive'} className="font-black text-[10px] uppercase tracking-widest">
-                                    {total > 0 ? `${total} TOTAL STOCK` : 'OUT OF STOCK'}
-                                  </Badge>
-                                );
-                              })()}
-                            </div>
-                          </div>
+                    {filteredProducts.map((product) => {
+                      const { totalSellable, allExpired, hasExpiredBatch } = getSellableStock(product);
+                      const isUnsellable = totalSellable <= 0;
 
-                          <div className="flex justify-between items-center mt-2">
-                            <span className="text-lg font-black text-blue-700">₱{product.price.toFixed(2)}</span>
-                            <Button size="sm" variant="outline" disabled={(Number(product.quantity) + Number(product.newStockQuantity || 0)) <= 0} className="border-2 border-blue-100 hover:bg-blue-600 hover:text-white transition-all">
-                              <Plus className="size-4" />
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                      return (
+                        <Card
+                          key={product.id}
+                          className={`transition-all border ${isUnsellable ? 'opacity-65 cursor-not-allowed bg-gray-50' : 'cursor-pointer hover:shadow-md'}`}
+                          style={{
+                            backgroundColor: isUnsellable ? '#f9fafb' : (product.category === 'Pharmaceutical' ? '#fafff0' : '#f0f7ff'),
+                            borderColor: isUnsellable ? '#d1d5db' : (product.category === 'Pharmaceutical' ? '#54b768' : '#4169E1')
+                          }}
+                          onClick={() => addToCart(product)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h4 className="font-bold text-gray-900">{product.name.replace(/\*/g, '')}</h4>
+                                  {isRxProduct(product) && (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider text-white shadow-xs shrink-0"
+                                      style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
+                                      title="Prescription Required (Rx)"
+                                    >
+                                      Rx
+                                    </span>
+                                  )}
+                                  {allExpired ? (
+                                    <Badge variant="destructive" className="h-5 px-1.5 text-[10px] uppercase font-black animate-pulse">EXPIRED</Badge>
+                                  ) : hasExpiredBatch ? (
+                                    <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase font-bold border-amber-500 text-amber-700 bg-amber-50">Has Expired Batch</Badge>
+                                  ) : (() => {
+                                    const days = getDaysRemaining(product.expiryDate);
+                                    if (days !== undefined && days <= 30) {
+                                      return <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase font-bold border-orange-500 text-orange-600 bg-orange-50">Expiring Soon</Badge>;
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
+                                <p className="text-xs text-gray-500 font-mono tracking-tighter">{product.sku}</p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                {allExpired ? (
+                                  <Badge variant="destructive" className="font-black text-[10px] uppercase tracking-widest">
+                                    EXPIRED
+                                  </Badge>
+                                ) : (
+                                  <Badge variant={totalSellable > 0 ? 'default' : 'destructive'} className="font-black text-[10px] uppercase tracking-widest">
+                                    {totalSellable > 0 ? `${totalSellable} AVAILABLE` : 'OUT OF STOCK'}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between items-center mt-2">
+                              <span className="text-lg font-black text-blue-700">₱{product.price.toFixed(2)}</span>
+                              <Button size="sm" variant="outline" disabled={isUnsellable} className="border-2 border-blue-100 hover:bg-blue-600 hover:text-white transition-all">
+                                <Plus className="size-4" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
                     {filteredProducts.length === 0 && (
                       <div className="col-span-2 text-center py-8 text-gray-500">
                         No products found

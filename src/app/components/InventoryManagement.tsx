@@ -251,10 +251,30 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
     setIsEditDialogOpen(true);
   };
 
+  const isDateExpired = (dateStr?: string | null): boolean => {
+    if (!dateStr) return false;
+    const cleanDate = dateStr.includes('T') ? dateStr : dateStr + 'T00:00:00';
+    const expiry = new Date(cleanDate);
+    expiry.setHours(0, 0, 0, 0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return expiry.getTime() < now.getTime();
+  };
+
   const getStockStatus = (product: Product) => {
-    const total = Number(product.quantity) + Number(product.newStockQuantity || 0);
+    const oldQty = Math.max(0, Number(product.quantity));
+    const newQty = Math.max(0, Number(product.newStockQuantity || 0));
+    const total = oldQty + newQty;
+
+    const oldExpired = isDateExpired(product.expiryDate);
+    const newExpired = isDateExpired(product.newStockExpiry);
+
+    const sellable = (oldExpired ? 0 : oldQty) + (newExpired ? 0 : newQty);
+
     if (total === 0) return { label: 'Out of Stock', color: 'bg-red-100 text-red-800' };
-    if (total <= product.reorderLevel) return { label: 'Low Stock', color: 'bg-orange-100 text-orange-800' };
+    if (sellable === 0) return { label: 'Expired', color: 'bg-red-600 text-white animate-pulse' };
+    if (sellable < total) return { label: 'Partial Expired', color: 'bg-amber-100 text-amber-800' };
+    if (sellable <= product.reorderLevel) return { label: 'Low Stock', color: 'bg-orange-100 text-orange-800' };
     return { label: 'In Stock', color: 'bg-green-100 text-green-800' };
   };
 
@@ -723,16 +743,23 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                           </TableCell>
                           <TableCell className="px-6 py-4 border-r border-gray-200 text-center">
                             <div className="flex flex-col items-center justify-center">
-                              <span className={`text-md font-black ${Number(product.quantity) === 0 ? 'text-red-600' : 'text-gray-900'}`}>{Number(product.quantity) === 0 ? '-' : product.quantity}</span>
-                              <span className="text-[9px] text-gray-400 font-bold uppercase">EXP: {product.expiryDate || 'N/A'}</span>
+                              {isDateExpired(product.expiryDate) && Number(product.quantity) > 0 && (
+                                <Badge variant="destructive" className="bg-red-600 text-white text-[9px] font-black h-4 px-1.5 mb-1 animate-pulse">EXPIRED</Badge>
+                              )}
+                              <span className={`text-md font-black ${isDateExpired(product.expiryDate) && Number(product.quantity) > 0 ? 'text-red-600' : Number(product.quantity) === 0 ? 'text-red-600' : 'text-gray-900'}`}>{Number(product.quantity) === 0 ? '-' : product.quantity}</span>
+                              <span className={`text-[9px] font-bold uppercase ${isDateExpired(product.expiryDate) && Number(product.quantity) > 0 ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {product.expiryDate || 'N/A'}</span>
                             </div>
                           </TableCell>
                           <TableCell className="px-6 py-4 border-r border-gray-200 text-center">
                             {product.newStockQuantity && product.newStockQuantity > 0 ? (
                               <div className="flex flex-col items-center justify-center">
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[9px] font-black h-4 px-1.5 mb-1">NEW STOCK</Badge>
-                                <span className="text-sm font-black text-blue-800">{product.newStockQuantity}</span>
-                                <span className="text-[9px] text-gray-400 font-bold uppercase">EXP: {product.newStockExpiry || 'N/A'}</span>
+                                {isDateExpired(product.newStockExpiry) ? (
+                                  <Badge variant="destructive" className="bg-red-600 text-white text-[9px] font-black h-4 px-1.5 mb-1 animate-pulse">EXPIRED</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[9px] font-black h-4 px-1.5 mb-1">NEW STOCK</Badge>
+                                )}
+                                <span className={`text-sm font-black ${isDateExpired(product.newStockExpiry) ? 'text-red-600' : 'text-blue-800'}`}>{product.newStockQuantity}</span>
+                                <span className={`text-[9px] font-bold uppercase ${isDateExpired(product.newStockExpiry) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {product.newStockExpiry || 'N/A'}</span>
                               </div>
                             ) : (
                               <span className="text-[10px] text-gray-400 font-bold">-</span>
@@ -749,7 +776,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                           </TableCell>
                           <TableCell className="px-6 py-4">
                             <div className="flex gap-2">
-                              {Number(product.quantity) === 0 && (product.newStockQuantity ?? 0) > 0 && (
+                              {Number(product.quantity) === 0 && (product.newStockQuantity ?? 0) > 0 && !isDateExpired(product.newStockExpiry) && (
                                 <Button
                                   variant="outline"
                                   size="sm"

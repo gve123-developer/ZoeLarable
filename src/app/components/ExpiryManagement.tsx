@@ -28,30 +28,113 @@ interface ExpiryManagementProps {
     onProductsChange: (products: Product[]) => void;
 }
 
+interface DisposalItem {
+    product: Product;
+    targetBatch: 'all' | 'old' | 'new';
+    quantityToDispose: number;
+    costLoss: number;
+    reason: string;
+    batchLabel: string;
+}
+
 export function ExpiryManagement({ currentUser, products, onProductsChange }: ExpiryManagementProps) {
     const [productToDispose, setProductToDispose] = useState<Product | null>(null);
-    const [productToConfirmDispose, setProductToConfirmDispose] = useState<Product | null>(null);
+    const [productToConfirmDispose, setProductToConfirmDispose] = useState<DisposalItem | null>(null);
 
-    const handleDispose = async (product: Product) => {
-        const loss = product.quantity * (product.cost || 0);
+    const isDateExpired = (dateStr?: string | null): boolean => {
+        if (!dateStr) return false;
+        const cleanDate = dateStr.includes('T') ? dateStr : dateStr + 'T00:00:00';
+        const expiry = new Date(cleanDate);
+        expiry.setHours(0, 0, 0, 0);
+        return expiry.getTime() < todayStart.getTime();
+    };
+
+    const getDisposalPlan = (product: Product): DisposalItem => {
+        const oldQty = Math.max(0, Number(product.quantity));
+        const newQty = Math.max(0, Number(product.newStockQuantity || 0));
+
+        const oldExpired = isDateExpired(product.expiryDate) && oldQty > 0;
+        const newExpired = isDateExpired(product.newStockExpiry) && newQty > 0;
+
+        let targetBatch: 'all' | 'old' | 'new' = 'old';
+        let quantityToDispose = oldQty;
+        let batchLabel = `Base Stock (${oldQty} units, EXP: ${product.expiryDate || 'N/A'})`;
+
+        if (oldExpired && newExpired) {
+            targetBatch = 'all';
+            quantityToDispose = oldQty + newQty;
+            batchLabel = `All Batches (${oldQty + newQty} units total)`;
+        } else if (newExpired) {
+            targetBatch = 'new';
+            quantityToDispose = newQty;
+            batchLabel = `New Stock Batch (${newQty} units, EXP: ${product.newStockExpiry || 'N/A'})`;
+        } else if (oldExpired) {
+            targetBatch = 'old';
+            quantityToDispose = oldQty;
+            batchLabel = `Base Stock Batch (${oldQty} units, EXP: ${product.expiryDate || 'N/A'})`;
+        } else {
+            if (oldQty > 0) {
+                targetBatch = 'old';
+                quantityToDispose = oldQty;
+                batchLabel = `Base Stock Batch (${oldQty} units, EXP: ${product.expiryDate || 'N/A'})`;
+            } else {
+                targetBatch = 'new';
+                quantityToDispose = newQty;
+                batchLabel = `New Stock Batch (${newQty} units, EXP: ${product.newStockExpiry || 'N/A'})`;
+            }
+        }
+
+        const costLoss = quantityToDispose * (product.cost || 0);
+        const reason = targetBatch === 'new'
+            ? 'Expired New Stock'
+            : targetBatch === 'all'
+                ? 'Expired All Stock'
+                : 'Expired Base Stock';
+
+        return { product, targetBatch, quantityToDispose, costLoss, reason, batchLabel };
+    };
+
+    const handleDispose = async (item: DisposalItem) => {
+        const { product, targetBatch, quantityToDispose, costLoss, reason } = item;
         const productName = product.name;
 
         try {
-            // Update the quantity in the backend database
+            let updatedPayload: any = { ...product };
+
+            if (targetBatch === 'new') {
+                updatedPayload.newStockQuantity = 0;
+                updatedPayload.newStockExpiry = null;
+            } else if (targetBatch === 'all') {
+                updatedPayload.quantity = 0;
+                updatedPayload.newStockQuantity = 0;
+                updatedPayload.newStockExpiry = null;
+            } else {
+                // targetBatch === 'old'
+                const newQty = Number(product.newStockQuantity || 0);
+                if (newQty > 0 && !isDateExpired(product.newStockExpiry)) {
+                    updatedPayload.quantity = newQty;
+                    updatedPayload.expiryDate = product.newStockExpiry;
+                    updatedPayload.newStockQuantity = 0;
+                    updatedPayload.newStockExpiry = null;
+                } else {
+                    updatedPayload.quantity = 0;
+                }
+            }
+
             const response = await fetch(`/api/products.php?id=${product.id}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-User-Name': currentUser.name
                 },
-                body: JSON.stringify({ ...product, quantity: 0 })
+                body: JSON.stringify(updatedPayload)
             });
 
             if (!response.ok) {
                 throw new Error('Failed to update backend');
             }
 
-            // Record the loss in database instead of localStorage
+            // Record loss in database
             const lossResponse = await fetch('/api/inventory_loss.php', {
                 method: 'POST',
                 headers: {
@@ -60,9 +143,9 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
                 },
                 body: JSON.stringify({
                     productId: product.id,
-                    quantity: product.quantity,
+                    quantity: quantityToDispose,
                     cost: product.cost || 0,
-                    reason: 'Expired'
+                    reason: reason
                 })
             });
 
@@ -70,13 +153,12 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
                 console.warn('Failed to record loss to database, but quantity was updated.');
             }
 
-            // Voice alert in English as requested
             speak([
-                `Loss Alert. We lost ${loss.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })} due to expired ${productName}.`
+                `Loss Alert. We lost ${costLoss.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })} due to ${reason.toLowerCase()} of ${productName}.`
             ]);
 
             const updatedProducts = products.map(p =>
-                p.id === product.id ? { ...p, quantity: 0 } : p
+                p.id === product.id ? { ...p, ...updatedPayload } : p
             );
 
             onProductsChange(updatedProducts);
@@ -425,11 +507,11 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
                                                         <TableCell className="text-gray-700 whitespace-nowrap border px-4 py-2">
                                                             <div className="flex flex-col gap-1">
                                                                 <div className="font-bold text-gray-900 text-[13px]">
-                                                                    {getActiveExpiryDate(product) ? new Date(getActiveExpiryDate(product)!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}
+                                                                    {product.expiryDate ? new Date(product.expiryDate.includes('T') ? product.expiryDate : product.expiryDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}
                                                                 </div>
                                                                 {(product.newStockQuantity ?? 0) > 0 && (
                                                                     <span className="text-[10px] font-bold text-blue-600 border-t border-gray-100 pt-1">
-                                                                        {product.newStockExpiry ? new Date(product.newStockExpiry).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}
+                                                                        {product.newStockExpiry ? new Date(product.newStockExpiry.includes('T') ? product.newStockExpiry : product.newStockExpiry + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}
                                                                     </span>
                                                                 )}
                                                             </div>
@@ -449,13 +531,13 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
                                                             ) : '-'}
                                                         </TableCell>
                                                         <TableCell className="text-center whitespace-nowrap border px-4 py-2">
-                                                            {(status.label === 'Expired' || status.label === 'Expiring Soon') && product.quantity > 0 && (
+                                                            {(status.label === 'Expired' || status.label === 'Expiring Soon') && (Number(product.quantity) > 0 || Number(product.newStockQuantity || 0) > 0) && (
                                                                 <Button
                                                                     size="sm"
                                                                     variant="destructive"
                                                                     onClick={() => setProductToDispose(product)}
                                                                     className="bg-red-600 hover:bg-red-700 font-bold text-xs uppercase tracking-tighter"
-                                                                    title="Dispose Expired Product (Requires Owner Passcode)"
+                                                                    title="Dispose Expired Stock (Requires Owner Passcode)"
                                                                 >
                                                                     <X className="size-3 mr-1" /> Dispose
                                                                 </Button>
@@ -540,13 +622,13 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
                 {/* Owner Passcode Authorization for Dispose */}
                 <OwnerPasscodeModal
                     isOpen={!!productToDispose}
-                    actionTitle={`Dispose Product: ${productToDispose?.name || ''}`}
+                    actionTitle={`Dispose Expired Stock: ${productToDispose?.name || ''}`}
                     actionDescription="Owner authorization required to dispose expired product and record inventory loss."
                     onSuccess={() => {
                         if (productToDispose) {
                             const p = productToDispose;
                             setProductToDispose(null);
-                            setProductToConfirmDispose(p);
+                            setProductToConfirmDispose(getDisposalPlan(p));
                         }
                     }}
                     onClose={() => setProductToDispose(null)}
@@ -566,25 +648,29 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
                                 Confirm Product Disposal
                             </AlertDialogTitle>
                             <AlertDialogDescription className="text-sm text-gray-600 mt-2">
-                                Are you sure you really want to dispose{' '}
-                                <span className="font-bold text-gray-900">"{productToConfirmDispose?.name}"</span>?
+                                Are you sure you really want to dispose expired stock for{' '}
+                                <span className="font-bold text-gray-900">"{productToConfirmDispose?.product.name}"</span>?
                             </AlertDialogDescription>
                         </AlertDialogHeader>
 
                         {productToConfirmDispose && (
                             <div className="bg-red-50/80 border border-red-200/80 rounded-xl p-4 my-3 text-sm space-y-2">
                                 <div className="flex justify-between items-center text-gray-700">
+                                    <span className="font-medium">Target Batch:</span>
+                                    <span className="font-bold text-red-700">{productToConfirmDispose.batchLabel}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-gray-700">
                                     <span className="font-medium">Quantity to Dispose:</span>
-                                    <span className="font-bold text-red-700">{productToConfirmDispose.quantity} units</span>
+                                    <span className="font-bold text-red-700">{productToConfirmDispose.quantityToDispose} units</span>
                                 </div>
                                 <div className="flex justify-between items-center text-gray-700">
                                     <span className="font-medium">Estimated Financial Loss:</span>
                                     <span className="font-bold text-red-700">
-                                        ₱{(productToConfirmDispose.quantity * (productToConfirmDispose.cost || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        ₱{productToConfirmDispose.costLoss.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                 </div>
                                 <p className="text-[11px] text-red-600/90 pt-1 font-medium border-t border-red-200/60">
-                                    * Stock will be permanently set to 0 and recorded in inventory loss records.
+                                    * The expired batch will be permanently cleared and recorded in inventory loss records.
                                 </p>
                             </div>
                         )}
@@ -599,14 +685,14 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
                             <AlertDialogAction
                                 onClick={() => {
                                     if (productToConfirmDispose) {
-                                        const p = productToConfirmDispose;
+                                        const item = productToConfirmDispose;
                                         setProductToConfirmDispose(null);
-                                        handleDispose(p);
+                                        handleDispose(item);
                                     }
                                 }}
                                 className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl"
                             >
-                                Yes, Dispose Product
+                                Yes, Dispose Stock
                             </AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
