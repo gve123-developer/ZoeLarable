@@ -76,7 +76,7 @@ if ($method === 'POST') {
         */
 
         $productStmt = $conn->prepare(
-            "SELECT id, name
+            "SELECT id, name, sku, batch_number
              FROM products
              WHERE id = :id"
         );
@@ -140,11 +140,12 @@ if ($method === 'POST') {
             $_SERVER['HTTP_X_USER_NAME']
             ?? 'Admin';
 
+        $loss_details = "Disposed $quantity unit(s) of {$product['name']} [SKU: {$product['sku']}, Batch: " . ($product['batch_number'] ?? 'N/A') . "] | Reason: $reason | Loss Cost: ₱" . number_format($cost * $quantity, 2);
         log_action(
             $conn,
             $user,
             'Dispose Product',
-            "Disposed $quantity unit(s) of {$product['name']} (Product ID: $productId, Reason: $reason)"
+            $loss_details
         );
 
         echo json_encode([

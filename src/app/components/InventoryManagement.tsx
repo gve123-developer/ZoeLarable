@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Product } from '@/app/App';
+import { User, Product, BatchItem } from '@/app/App';
 import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
 import { Label } from '@/app/components/ui/label';
@@ -62,6 +62,83 @@ export const getTodayBatchCode = (supplier?: string) => {
   return formatBatchCode(undefined, supplier);
 };
 
+export function alignBatchesFEFO(
+  oldQty: number,
+  oldExp: string | undefined | null,
+  oldBatchNumber: string | undefined,
+  queue: BatchItem[],
+  defaultSupplier: string,
+  todayStr: string
+) {
+  const allBatches: BatchItem[] = [];
+
+  if (Number(oldQty) > 0) {
+    allBatches.push({
+      batchNumber: oldBatchNumber || formatBatchCode(todayStr, defaultSupplier),
+      supplier: defaultSupplier,
+      quantity: Number(oldQty),
+      expiryDate: oldExp || undefined,
+      arrivalDate: todayStr
+    });
+  }
+
+  if (Array.isArray(queue)) {
+    for (const item of queue) {
+      if (Number(item.quantity) > 0) {
+        allBatches.push({
+          batchNumber: item.batchNumber || formatBatchCode(item.arrivalDate || todayStr, item.supplier || defaultSupplier),
+          supplier: item.supplier || defaultSupplier,
+          quantity: Number(item.quantity),
+          expiryDate: item.expiryDate || undefined,
+          arrivalDate: item.arrivalDate || todayStr
+        });
+      }
+    }
+  }
+
+  if (allBatches.length === 0) {
+    return {
+      quantity: 0,
+      expiryDate: undefined,
+      batchNumber: oldBatchNumber || formatBatchCode(todayStr, defaultSupplier),
+      newBatchQueue: [] as BatchItem[],
+      newStockQuantity: 0,
+      newStockExpiry: undefined,
+      wasPromoted: false
+    };
+  }
+
+  // Strict FEFO: Earliest expiration date first
+  allBatches.sort((a, b) => {
+    const expA = a.expiryDate && a.expiryDate.trim() ? a.expiryDate.trim() : '9999-12-31';
+    const expB = b.expiryDate && b.expiryDate.trim() ? b.expiryDate.trim() : '9999-12-31';
+    if (expA !== expB) {
+      return expA.localeCompare(expB);
+    }
+    const arrA = a.arrivalDate || '';
+    const arrB = b.arrivalDate || '';
+    return arrA.localeCompare(arrB);
+  });
+
+  const primary = allBatches[0];
+  const remaining = allBatches.slice(1);
+  const totalRemainingQty = remaining.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
+  const remExpList = remaining.map(b => b.expiryDate).filter(Boolean) as string[];
+  const earliestRemExp = remExpList.length > 0 ? [...remExpList].sort()[0] : undefined;
+
+  const wasPromoted = primary.batchNumber !== oldBatchNumber;
+
+  return {
+    quantity: primary.quantity,
+    expiryDate: primary.expiryDate,
+    batchNumber: primary.batchNumber,
+    newBatchQueue: remaining,
+    newStockQuantity: totalRemainingQty,
+    newStockExpiry: earliestRemExp,
+    wasPromoted
+  };
+}
+
 export function InventoryManagement({ currentUser, products, onProductsChange }: InventoryManagementProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
@@ -114,7 +191,6 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         expiryDate: earliestExp,
         arrivalDate: existing.arrivalDate || arrDate
       };
-      toast.success(`Accumulated +${incomingBatchQty} pcs into existing batch ${code}. Total: ${newQty} pcs`);
     } else {
       currentQueue.push({
         batchNumber: code,
@@ -123,19 +199,35 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         expiryDate: incomingBatchExp || undefined,
         arrivalDate: arrDate
       });
-      toast.success(`Queued new batch ${code} with ${incomingBatchQty} pcs`);
     }
 
-    const totalNewQty = currentQueue.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
-    const expList = currentQueue.map(b => b.expiryDate).filter(Boolean) as string[];
-    const earliestQueueExp = expList.length > 0 ? expList.sort()[0] : undefined;
+    // Apply strict FEFO alignment: Earliest expiration batch is ALWAYS the active Old Batch
+    const aligned = alignBatchesFEFO(
+      Number(formData.quantity ?? 0),
+      formData.expiryDate,
+      formData.batchNumber,
+      currentQueue,
+      sup,
+      arrDate
+    );
 
     setFormData({
       ...formData,
-      newBatchQueue: currentQueue,
-      newStockQuantity: totalNewQty,
-      newStockExpiry: earliestQueueExp
+      quantity: aligned.quantity,
+      expiryDate: aligned.expiryDate,
+      batchNumber: aligned.batchNumber,
+      newBatchQueue: aligned.newBatchQueue,
+      newStockQuantity: aligned.newStockQuantity,
+      newStockExpiry: aligned.newStockExpiry
     });
+
+    if (aligned.wasPromoted) {
+      toast.success(`FEFO Rotation Applied: Batch ${aligned.batchNumber} (EXP: ${aligned.expiryDate || 'N/A'}) expires earliest and is promoted to active Old Batch!`);
+    } else if (existingIdx >= 0) {
+      toast.success(`Accumulated +${incomingBatchQty} pcs into existing batch ${code}.`);
+    } else {
+      toast.success(`Queued new batch ${code} with ${incomingBatchQty} pcs into restock queue`);
+    }
 
     setIncomingBatchQty('');
     setIncomingBatchExp('');
@@ -180,7 +272,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         logAuditAction(
           currentUser.name,
           'Inventory Add',
-          `Added new product: ${formData.name} [SKU: ${formData.sku}] | Initial Qty: ${formData.quantity} | New Stock: ${formData.newStockQuantity || 0}`
+          `Added New Product: ${formData.name} [SKU: ${formData.sku}, Category: ${formData.category}] | Initial Old Batch: ${batchNumber} (${formData.quantity} pcs, EXP: ${formData.expiryDate || 'N/A'}, Supplier: ${sup}) | Cost: ₱${Number(formData.cost).toFixed(2)} | Price: ₱${Number(formData.price).toFixed(2)} | Reorder Level: ${formData.reorderLevel}`
         );
         setIsAddDialogOpen(false);
         setFormData({});
@@ -200,7 +292,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
     const todayStr = new Date().toISOString().split('T')[0];
     const initialArrDate = p.createdAt ? p.createdAt.slice(0, 10) : todayStr;
 
-    const queue: BatchItem[] = Array.isArray(p.newBatchQueue) && p.newBatchQueue.length > 0
+    const initialQueue: BatchItem[] = Array.isArray(p.newBatchQueue) && p.newBatchQueue.length > 0
       ? p.newBatchQueue.map(b => ({
           ...b,
           batchNumber: (b.batchNumber && !b.batchNumber.startsWith('20261014-'))
@@ -222,16 +314,25 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
       ? p.batchNumber
       : formatBatchCode(initialArrDate, sup);
 
-    const totalNew = queue.reduce((s, b) => s + Number(b.quantity || 0), 0);
-    const expList = queue.map(b => b.expiryDate).filter(Boolean) as string[];
+    // Apply strict FEFO alignment: Earliest expiration batch ALWAYS becomes Old Batch
+    const aligned = alignBatchesFEFO(
+      Number(p.quantity ?? 0),
+      p.expiryDate,
+      oldBatchNumber,
+      initialQueue,
+      sup,
+      todayStr
+    );
 
     setEditingProduct(p);
     setFormData({
       ...p,
-      batchNumber: oldBatchNumber,
-      newBatchQueue: queue,
-      newStockQuantity: totalNew,
-      newStockExpiry: expList.length > 0 ? expList.sort()[0] : p.newStockExpiry
+      quantity: aligned.quantity,
+      expiryDate: aligned.expiryDate,
+      batchNumber: aligned.batchNumber,
+      newBatchQueue: aligned.newBatchQueue,
+      newStockQuantity: aligned.newStockQuantity,
+      newStockExpiry: aligned.newStockExpiry
     });
     setIncomingBatchQty('');
     setIncomingBatchExp('');
@@ -246,9 +347,12 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
 
     // Check if the user filled in the incoming batch inputs without explicitly clicking "+ Queue Batch"
     let currentQueue = Array.isArray(formData.newBatchQueue) ? [...formData.newBatchQueue] : [];
+    const sup = (incomingBatchSupplier || (formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
+    const arrDate = incomingBatchArrivalDate || new Date().toISOString().split('T')[0];
+
+    let newlyAddedBatchSummary = '';
+
     if (incomingBatchQty && Number(incomingBatchQty) > 0) {
-      const sup = (incomingBatchSupplier || (formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
-      const arrDate = incomingBatchArrivalDate || new Date().toISOString().split('T')[0];
       const code = (incomingBatchNumber.trim() || formatBatchCode(arrDate, sup)).toUpperCase();
       const existingIdx = currentQueue.findIndex(b => b.batchNumber.toUpperCase() === code);
 
@@ -267,6 +371,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
           expiryDate: earliestExp,
           arrivalDate: existing.arrivalDate || arrDate
         };
+        newlyAddedBatchSummary = ` | Accumulated +${incomingBatchQty} pcs into Batch ${code} (EXP: ${earliestExp || 'N/A'}, Supplier: ${sup})`;
       } else {
         currentQueue.push({
           batchNumber: code,
@@ -275,20 +380,37 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
           expiryDate: incomingBatchExp || undefined,
           arrivalDate: arrDate
         });
+        newlyAddedBatchSummary = ` | Added Incoming Batch: ${code} (+${incomingBatchQty} pcs, EXP: ${incomingBatchExp || 'N/A'}, Supplier: ${sup})`;
       }
     }
 
-    const totalNewQty = currentQueue.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
-    const expList = currentQueue.map(b => b.expiryDate).filter(Boolean) as string[];
-    const earliestExp = expList.length > 0 ? expList.sort()[0] : null;
+    // Strict FEFO alignment: Earliest expiration batch ALWAYS becomes the active Old Batch
+    const aligned = alignBatchesFEFO(
+      Number(formData.quantity ?? 0),
+      formData.expiryDate,
+      formData.batchNumber,
+      currentQueue,
+      sup,
+      arrDate
+    );
 
     const payload = {
       ...editingProduct,
       ...formData,
-      newBatchQueue: currentQueue,
-      newStockQuantity: totalNewQty,
-      newStockExpiry: earliestExp
+      quantity: aligned.quantity,
+      expiryDate: aligned.expiryDate,
+      batchNumber: aligned.batchNumber,
+      newBatchQueue: aligned.newBatchQueue,
+      newStockQuantity: aligned.newStockQuantity,
+      newStockExpiry: aligned.newStockExpiry
     };
+
+    const queueDetails = aligned.newBatchQueue.length > 0
+      ? ` | Queued Batches (${aligned.newBatchQueue.length}): [${aligned.newBatchQueue.map(b => `${b.batchNumber}: ${b.quantity} pcs (EXP: ${b.expiryDate || 'N/A'})`).join(', ')}]`
+      : ' | Queued Batches: None';
+
+    const totalCombinedStock = Number(aligned.quantity) + Number(aligned.newStockQuantity);
+    const auditDetails = `Updated Product: ${payload.name} [SKU: ${payload.sku}]${newlyAddedBatchSummary} | Active Old Batch: ${aligned.batchNumber} (${aligned.quantity} pcs, EXP: ${aligned.expiryDate || 'N/A'}) | New Batch Total: ${aligned.newStockQuantity} pcs${queueDetails} | Total Combined Stock: ${totalCombinedStock} pcs | Price: ₱${Number(payload.price).toFixed(2)}`;
 
     try {
       const response = await fetch(`/api/products.php?id=${editingProduct.id}`, {
@@ -301,11 +423,11 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
       });
       const data = await response.json();
       if (data.success) {
-        toast.success(`Product updated successfully! New Batch: ${totalNewQty} units.`);
+        toast.success(`Product updated successfully! Total Stock: ${totalCombinedStock} pcs.`);
         logAuditAction(
           currentUser.name,
           'Inventory Update',
-          `Updated product: ${payload.name} [SKU: ${payload.sku}] | Base Qty: ${payload.quantity} | New Batch: ${totalNewQty} units`
+          auditDetails
         );
         setIsEditDialogOpen(false);
         setEditingProduct(null);
@@ -347,7 +469,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         logAuditAction(
           currentUser.name,
           'Inventory Delete',
-          `Deleted product: ${productToDelete.name} [SKU: ${productToDelete.sku}]`
+          `Deleted Product: ${productToDelete.name} [SKU: ${productToDelete.sku}, Category: ${productToDelete.category}] | Active Old Batch: ${productToDelete.quantity} pcs [Batch: ${productToDelete.batchNumber || 'N/A'}, EXP: ${productToDelete.expiryDate || 'N/A'}] | Queued Stock: ${productToDelete.newStockQuantity || 0} pcs | Price: ₱${productToDelete.price.toFixed(2)}`
         );
         const updatedProducts = await fetch('/api/products.php').then(res => res.json());
         onProductsChange(updatedProducts);
@@ -973,9 +1095,6 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
 
                               return (
                                 <div className="flex flex-col items-center justify-center">
-                                  {!isDateExpired(effectiveNewExpiry) && (
-                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[9px] font-black h-4 px-1.5 mb-1">NEW BATCH</Badge>
-                                  )}
                                   <span className={`text-sm font-black ${isDateExpired(effectiveNewExpiry) ? 'text-red-600' : 'text-blue-800'}`}>{effectiveNewQty}</span>
                                   <span className={`text-[9px] font-bold uppercase ${isDateExpired(effectiveNewExpiry) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {effectiveNewExpiry || 'N/A'}</span>
                                   {queueBatches.length > 1 ? (
@@ -1097,7 +1216,10 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         {/* Edit Dialog */}
         <ErrorBoundary fallbackTitle="Edit Dialog Error">
           <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-            <DialogContent className="max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto p-6 bg-white rounded-2xl shadow-2xl">
+            <DialogContent
+              className="max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto p-6 bg-white rounded-2xl shadow-2xl"
+              style={{ maxWidth: '1120px', width: '96vw' }}
+            >
               <DialogHeader className="pb-3 border-b border-gray-100 flex flex-row items-center justify-between">
                 <div>
                   <DialogTitle className="text-xl font-black text-gray-900 flex items-center gap-2">
@@ -1219,15 +1341,13 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                 {/* RIGHT COLUMN (NASA GILID): New Batch Queue & Restocking (6 cols) */}
                 <div className="lg:col-span-6 space-y-4">
                   <div className="p-4 bg-blue-50/80 border-2 border-blue-200 rounded-xl space-y-4 shadow-xs">
-                    <div className="flex items-center justify-between pb-1.5 border-b border-blue-200">
-                      <div className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-blue-200">
+                      <div className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
                         <Layers className="size-4 text-blue-600" /> New Batch Queue & Restocking
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 shadow-2xs">
-                          Total in Queue: {Number(formData.newStockQuantity || 0)} pcs
-                        </Badge>
-                      </div>
+                      <Badge className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 shadow-2xs shrink-0 whitespace-nowrap">
+                        Total in Queue: {Number(formData.newStockQuantity || 0)} pcs
+                      </Badge>
                     </div>
 
                     {/* Queued batches list */}
@@ -1602,7 +1722,10 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         {/* Queued Batches Modal */}
         {viewingQueueProduct && (
           <Dialog open={!!viewingQueueProduct} onOpenChange={() => setViewingQueueProduct(null)}>
-            <DialogContent className="max-w-2xl bg-white p-6 rounded-2xl shadow-2xl border border-gray-100">
+            <DialogContent
+              className="max-w-3xl w-[92vw] bg-white p-6 rounded-2xl shadow-2xl border border-gray-100"
+              style={{ maxWidth: '850px', width: '92vw' }}
+            >
               <DialogHeader>
                 <DialogTitle className="text-lg font-black text-gray-900 flex items-center gap-2">
                   <Layers className="size-5 text-blue-600" />
@@ -1645,7 +1768,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                       Walang naka-queue na bagong batch para sa produktong ito.
                     </div>
                   ) : (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="border border-gray-200 rounded-xl overflow-x-auto shadow-2xs">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-blue-50/80 text-[10px] uppercase font-black text-blue-900 tracking-wider border-b border-blue-100">
                           <tr>
@@ -1689,21 +1812,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                     </div>
                   )}
                 </div>
-
-                {/* Informational defense note */}
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed">
-                  <p className="font-bold flex items-center gap-1 text-amber-950 mb-0.5">
-                    ℹ️ Automated FIFO/FEFO Queue & Promotion:
-                  </p>
-                  Kapag naubos ang Old Batch sa benta sa POS, kusa at awtomatikong ia-angat ng system ang Batch #1 sa listahang ito patungong Old Batch. Hindi na kailangan ng manu-manong pindutan.
-                </div>
               </div>
-
-              <DialogFooter>
-                <Button onClick={() => setViewingQueueProduct(null)} className="bg-gray-900 hover:bg-gray-800 text-white text-xs rounded-xl font-bold">
-                  Close
-                </Button>
-              </DialogFooter>
             </DialogContent>
           </Dialog>
         )}

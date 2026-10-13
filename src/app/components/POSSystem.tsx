@@ -514,12 +514,16 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
 
         // Selection of item summary for audit
         const itemSummary = transaction.items
-          .map(i => `${i.productName} x${i.quantity}`)
-          .join(', ');
+          .map(i => `${i.productName} [SKU: ${i.sku || 'N/A'}] x${i.quantity} @ ₱${Number(i.price).toFixed(2)} = ₱${(Number(i.quantity) * Number(i.price)).toFixed(2)}`)
+          .join('; ');
+        const discountText = transaction.discountType
+          ? `, Discount: ${transaction.discountType} (-₱${(Number(transaction.discountAmount) || 0).toFixed(2)})`
+          : '';
+        const paymentDetail = `Paid: ₱${Number(transaction.tenderedAmount || 0).toFixed(2)}, Change: ₱${Number(transaction.changeAmount || 0).toFixed(2)}, Method: ${transaction.paymentMethod}${discountText}`;
         logAuditAction(
           cashierName,
           'POS Sale',
-          `Completed sale #${data.id}. Total: ₱${transaction.total.toFixed(2)} | Items: ${itemSummary}`
+          `Completed Sale #${data.id || data.transaction_id || 'N/A'} | Total: ₱${transaction.total.toFixed(2)} (${paymentDetail}) | Items (${transaction.items.length}): ${itemSummary}`
         );
       } else {
         const errorMsg = data?.error || data?.message || `HTTP ${response.status}`;

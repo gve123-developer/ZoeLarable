@@ -254,11 +254,12 @@ elseif ($method === 'POST') {
             $_SERVER['HTTP_X_USER_NAME']
             ?? 'Admin';
 
+        $restore_details = "Restored from archive: {$p['name']} [SKU: {$p['sku']}] | Stock: {$p['quantity']} pcs [Batch: " . ($p['batch_number'] ?? 'N/A') . "] + {$p['new_stock_quantity']} pcs queued | Price: ₱" . number_format((float)$p['price'], 2);
         log_action(
             $conn,
             $user,
             'Restore Product',
-            "Restored from archive: {$p['name']} (New ID: $restoredProductId)"
+            $restore_details
         );
 
         echo json_encode([
@@ -310,7 +311,7 @@ elseif ($method === 'DELETE') {
         }
 
         $fetch = $conn->prepare(
-            "SELECT name
+            "SELECT name, sku
              FROM deleted_products
              WHERE id = :id"
         );
@@ -332,6 +333,7 @@ elseif ($method === 'DELETE') {
         $name =
             $row['name']
             ?? "ID $dump_id";
+        $sku = $row['sku'] ?? 'N/A';
 
         $deleteStmt = $conn->prepare(
             "DELETE FROM deleted_products
@@ -350,7 +352,7 @@ elseif ($method === 'DELETE') {
             $conn,
             $user,
             'Purge Product',
-            "Permanently purged: $name"
+            "Permanently purged from archive: $name [SKU: $sku]"
         );
 
         echo json_encode([
