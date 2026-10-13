@@ -1,0 +1,43 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zoe_pharmacy_app
+    restart: unless-stopped
+    ports:
+      - "8200:80"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=zoe_pos_system_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/zoe_pos_system_db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    container_name: zoe_pharmacy_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=zoe_pos_system_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker-init-db/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./zoe_live_database_backup.sql:/docker-entrypoint-initdb.d/02_zoe_live_database_backup.sql:ro
+      - ./docker-init-db/03_post_init.sql:/docker-entrypoint-initdb.d/03_post_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zoe_pos_system_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+    name: zoe_pharmacy_pgdata
