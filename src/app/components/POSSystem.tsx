@@ -466,14 +466,30 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
               }
             }
 
-            // Auto-Rotate: If Old is now 0 and New remains, promote New to Old
-            if (currentOld <= 0 && currentNew > 0) {
+            // Auto-Rotate: If Old is now 0 and New remains, promote next queued batch to Old
+            let updatedQueue = product.newBatchQueue ? [...product.newBatchQueue] : [];
+            if (currentOld <= 0 && (updatedQueue.length > 0 || currentNew > 0)) {
+              if (updatedQueue.length > 0) {
+                const nextBatch = updatedQueue.shift()!;
+                const nextQty = updatedQueue.reduce((s, b) => s + Number(b.quantity || 0), 0);
+                const nextExp = updatedQueue.length > 0 ? updatedQueue[0].expiryDate : undefined;
+                return {
+                  ...product,
+                  quantity: nextBatch.quantity,
+                  expiryDate: nextBatch.expiryDate,
+                  batchNumber: nextBatch.batchNumber,
+                  newBatchQueue: updatedQueue,
+                  newStockQuantity: nextQty,
+                  newStockExpiry: nextExp
+                };
+              }
               return {
                 ...product,
                 quantity: currentNew,
                 expiryDate: newStockExpiry || expiryDate,
                 newStockQuantity: 0,
-                newStockExpiry: undefined
+                newStockExpiry: undefined,
+                newBatchQueue: []
               };
             }
 

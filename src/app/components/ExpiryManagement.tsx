@@ -58,7 +58,7 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
 
         let targetBatch: 'all' | 'old' | 'new' = 'old';
         let quantityToDispose = oldQty;
-        let batchLabel = `Base Stock (${oldQty} units, EXP: ${product.expiryDate || 'N/A'})`;
+        let batchLabel = `Old Batch (${oldQty} units, EXP: ${product.expiryDate || 'N/A'}${product.batchNumber ? `, BATCH: ${product.batchNumber}` : ''})`;
 
         if (oldExpired && newExpired) {
             targetBatch = 'all';
@@ -67,29 +67,29 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
         } else if (newExpired) {
             targetBatch = 'new';
             quantityToDispose = newQty;
-            batchLabel = `New Stock Batch (${newQty} units, EXP: ${product.newStockExpiry || 'N/A'})`;
+            batchLabel = `New Batch (${newQty} units, EXP: ${product.newStockExpiry || 'N/A'})`;
         } else if (oldExpired) {
             targetBatch = 'old';
             quantityToDispose = oldQty;
-            batchLabel = `Base Stock Batch (${oldQty} units, EXP: ${product.expiryDate || 'N/A'})`;
+            batchLabel = `Old Batch (${oldQty} units, EXP: ${product.expiryDate || 'N/A'}${product.batchNumber ? `, BATCH: ${product.batchNumber}` : ''})`;
         } else {
             if (oldQty > 0) {
                 targetBatch = 'old';
                 quantityToDispose = oldQty;
-                batchLabel = `Base Stock Batch (${oldQty} units, EXP: ${product.expiryDate || 'N/A'})`;
+                batchLabel = `Old Batch (${oldQty} units, EXP: ${product.expiryDate || 'N/A'}${product.batchNumber ? `, BATCH: ${product.batchNumber}` : ''})`;
             } else {
                 targetBatch = 'new';
                 quantityToDispose = newQty;
-                batchLabel = `New Stock Batch (${newQty} units, EXP: ${product.newStockExpiry || 'N/A'})`;
+                batchLabel = `New Batch (${newQty} units, EXP: ${product.newStockExpiry || 'N/A'})`;
             }
         }
 
         const costLoss = quantityToDispose * (product.cost || 0);
         const reason = targetBatch === 'new'
-            ? 'Expired New Stock'
+            ? 'Expired New Batch'
             : targetBatch === 'all'
-                ? 'Expired All Stock'
-                : 'Expired Base Stock';
+                ? 'Expired All Batches'
+                : 'Expired Old Batch';
 
         return { product, targetBatch, quantityToDispose, costLoss, reason, batchLabel };
     };

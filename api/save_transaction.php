@@ -198,6 +198,8 @@ try {
             new_stock_quantity,
             expiry_date,
             new_stock_expiry,
+            batch_number,
+            new_batch_queue,
             cost
          FROM products
          WHERE id = :id
@@ -230,6 +232,8 @@ try {
             new_stock_quantity = :new_stock_quantity,
             expiry_date = :expiry_date,
             new_stock_expiry = :new_stock_expiry,
+            batch_number = :batch_number,
+            new_batch_queue = :new_batch_queue,
             updated_at = CURRENT_TIMESTAMP
          WHERE id = :id"
     );
@@ -295,6 +299,12 @@ try {
 
         $expiryDate = $product['expiry_date'];
         $newStockExpiry = $product['new_stock_expiry'];
+        $batchNumber = $product['batch_number'] ?? null;
+        $rawQueue = $product['new_batch_queue'] ?? '[]';
+        $newBatchQueue = json_decode($rawQueue, true);
+        if (!is_array($newBatchQueue)) {
+            $newBatchQueue = [];
+        }
 
         // Determine which batches are expired (strict check against current date)
         $todayTime = strtotime(date('Y-m-d'));
@@ -374,10 +384,12 @@ try {
             }
         }
 
+        $totalTakenFromNew = 0;
         if ($consumeFromNewFirst) {
             // New stock expires earlier or is only valid batch: consume New first, then Old
             $takeFromNew = min($qty, $sellableNew);
             $newQty -= $takeFromNew;
+            $totalTakenFromNew += $takeFromNew;
             $remaining = $qty - $takeFromNew;
 
             if ($remaining > 0 && $sellableOld > 0) {
@@ -393,29 +405,53 @@ try {
             if ($remaining > 0 && $sellableNew > 0) {
                 $takeFromNew = min($remaining, $sellableNew);
                 $newQty -= $takeFromNew;
+                $totalTakenFromNew += $takeFromNew;
             }
+        }
+
+        // Deduct from queued batches in order
+        if ($totalTakenFromNew > 0 && !empty($newBatchQueue)) {
+            $deductRem = $totalTakenFromNew;
+            for ($qi = 0; $qi < count($newBatchQueue) && $deductRem > 0; $qi++) {
+                $bQty = (int)($newBatchQueue[$qi]['quantity'] ?? 0);
+                $sub = min($deductRem, $bQty);
+                $newBatchQueue[$qi]['quantity'] = $bQty - $sub;
+                $deductRem -= $sub;
+            }
+            $newBatchQueue = array_values(array_filter($newBatchQueue, function($b) {
+                return ($b['quantity'] ?? 0) > 0;
+            }));
         }
 
         /*
         |--------------------------------------------------------------------------
         | Auto rotation / Batch cleanup
         |--------------------------------------------------------------------------
-        | If old stock is 0 and new stock remains, promote new stock to primary.
-        | If new stock is 0, clear new_stock_expiry.
+        | If old stock is 0 and new stock remains, promote next queued batch to primary.
+        | If new stock is 0, clear new_stock_expiry and queue.
         |--------------------------------------------------------------------------
         */
 
-        if ($oldQty <= 0 && $newQty > 0) {
-            $oldQty = $newQty;
-            $expiryDate = $newStockExpiry;
+        if ($oldQty <= 0 && (!empty($newBatchQueue) || $newQty > 0)) {
+            if (!empty($newBatchQueue)) {
+                $promoted = array_shift($newBatchQueue);
+                $oldQty = (int)$promoted['quantity'];
+                $expiryDate = $promoted['expiryDate'] ?? null;
+                $batchNumber = $promoted['batchNumber'] ?? $batchNumber;
+            } else {
+                $oldQty = $newQty;
+                $expiryDate = $newStockExpiry;
+            }
 
-            $newQty = 0;
-            $newStockExpiry = null;
+            $newQty = array_sum(array_column($newBatchQueue, 'quantity'));
+            $expList = array_filter(array_column($newBatchQueue, 'expiryDate'));
+            $newStockExpiry = !empty($expList) ? min($expList) : null;
 
-            error_log("[AUTO-ROTATE] Product ID $pid promoted from new stock.");
+            error_log("[AUTO-ROTATE] Product ID $pid promoted from next queued batch.");
         } elseif ($newQty <= 0) {
             $newQty = 0;
             $newStockExpiry = null;
+            $newBatchQueue = [];
         }
 
         /*
@@ -432,6 +468,8 @@ try {
             ':new_stock_quantity' => $newQty,
             ':expiry_date' => $expiryDate,
             ':new_stock_expiry' => $newStockExpiry,
+            ':batch_number' => $batchNumber,
+            ':new_batch_queue' => json_encode($newBatchQueue),
             ':id' => $pid
         ]);
     }

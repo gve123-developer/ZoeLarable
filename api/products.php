@@ -32,11 +32,38 @@ function apiError(int $code, string $message, string $debug = ''): void
 }
 
 
+function get_smart_supplier($name, $category = '') {
+    $n = strtoupper($name ?? '');
+    $cat = strtoupper($category ?? '');
+
+    if (preg_match('/(BIOGESIC|BIOFLU|ALAXAN|NEOZEP|ENERVON|SOLMUX|MEDICOL|DECOLGEN|MYRA|REVITALICON|DIATABS|ALLERM|TUSERAN|KREMIL|CEELIN|DISUFRIN)/', $n)) return 'UNILAB';
+    if (preg_match('/(BUSCOPAN|BISOLVON|DULCOLAX)/', $n)) return 'SANOFI';
+    if (preg_match('/(BONAMINE|PONSTAN|PFIZER)/', $n)) return 'PFIZER';
+    if (preg_match('/(BRICANYL|ASTRAZENECA)/', $n)) return 'ASTRAZENECA';
+    if (preg_match('/(BONNA|BONAMIL|BONAKID|WYETH)/', $n)) return 'WYETH';
+    if (preg_match('/(BIODERM|CASINO|EFFICASCENT|OMEGA|IPI)/', $n)) return 'IPI';
+    if (preg_match('/(C\.Y\.GABRIEL|CY GABRIEL)/', $n)) return 'CYGABRIEL';
+    if (preg_match('/(BL SOAP|BL CREAM)/', $n)) return 'BL-PH';
+    if (preg_match('/(DEQUADIN|PANADOL|CALPOL|SENSODYNE)/', $n)) return 'GSK';
+    if (preg_match('/(WHITE FLOWER)/', $n)) return 'HOE';
+    if (preg_match('/(VICKS|SAFEGUARD)/', $n)) return 'PG';
+    if (preg_match('/(BENCH)/', $n)) return 'BENCH';
+    if (preg_match('/(COLGATE|PALMOLIVE)/', $n)) return 'COLGATE';
+    if (preg_match('/(POTEN-CEE|ASCOF)/', $n)) return 'PASCUAL';
+    if (preg_match('/(RHEA)/', $n)) return 'RHEA';
+    if (strpos($cat, 'NON-PHARMACEUTICAL') !== false || strpos($n, 'SOAP') !== false || strpos($n, 'SHAMPOO') !== false) return 'GEN-MERCH';
+    return 'UNILAB';
+}
+
 // GET: Fetch all products
 if ($method === 'GET') {
     try {
-        // Clean any lingering asterisks from product names
+        // Migration and cleanup
         try {
+            $conn->exec("ALTER TABLE products ADD COLUMN IF NOT EXISTS batch_number VARCHAR(100)");
+            $conn->exec("ALTER TABLE products ADD COLUMN IF NOT EXISTS new_batch_queue TEXT DEFAULT '[]'");
+            $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS batch_number VARCHAR(100)");
+            $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS new_batch_queue TEXT DEFAULT '[]'");
             $conn->exec("UPDATE products SET name = TRIM(REPLACE(name, '*', '')) WHERE name LIKE '%*%'");
             $conn->exec("UPDATE deleted_products SET name = TRIM(REPLACE(name, '*', '')) WHERE name LIKE '%*%'");
         } catch (Throwable $ignored) {}
@@ -54,6 +81,8 @@ if ($method === 'GET') {
                 p.expiry_date,
                 p.new_stock_quantity,
                 p.new_stock_expiry,
+                p.batch_number,
+                p.new_batch_queue,
                 c.name AS category
             FROM products p
             LEFT JOIN categories c
@@ -66,19 +95,83 @@ if ($method === 'GET') {
         $products = [];
 
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $cat = $row['category'] ?? 'Uncategorized';
+            $supplier = get_smart_supplier($row['name'], $cat);
+
+            $batchNumber = $row['batch_number'] ?? '';
+            if (empty($batchNumber)) {
+                $batchNumber = '20261014-' . $supplier;
+                try {
+                    $conn->prepare("UPDATE products SET batch_number = :bn WHERE id = :id")
+                         ->execute([':bn' => $batchNumber, ':id' => $row['id']]);
+                } catch (Throwable $e) {}
+            }
+
+            $rawQueue = $row['new_batch_queue'] ?? '[]';
+            $queue = json_decode($rawQueue, true);
+            if (!is_array($queue)) {
+                $queue = [];
+            }
+
+            $newQty = (int)($row['new_stock_quantity'] ?? 0);
+            if ($newQty > 0 && empty($queue)) {
+                $queue = [
+                    [
+                        'batchNumber' => '20261014-' . $supplier,
+                        'supplier' => $supplier,
+                        'quantity' => $newQty,
+                        'expiryDate' => $row['new_stock_expiry']
+                    ]
+                ];
+                try {
+                    $conn->prepare("UPDATE products SET new_batch_queue = :nbq WHERE id = :id")
+                         ->execute([':nbq' => json_encode($queue), ':id' => $row['id']]);
+                } catch (Throwable $e) {}
+            }
+
+            // Automatic batch rotation: If Old Batch is 0 and New Batch Queue has entries, promote next batch
+            $qty = (int)$row['quantity'];
+            $expiry = $row['expiry_date'];
+            if ($qty <= 0 && !empty($queue)) {
+                $promoted = array_shift($queue);
+                $qty = (int)$promoted['quantity'];
+                $expiry = $promoted['expiryDate'] ?? null;
+                $batchNumber = $promoted['batchNumber'] ?? $batchNumber;
+                $newQty = array_sum(array_column($queue, 'quantity'));
+                $expList = array_filter(array_column($queue, 'expiryDate'));
+                $newExpiry = !empty($expList) ? min($expList) : null;
+                try {
+                    $conn->prepare("UPDATE products SET quantity = :q, expiry_date = :exp, batch_number = :bn, new_stock_quantity = :nsq, new_stock_expiry = :nse, new_batch_queue = :nbq WHERE id = :id")
+                         ->execute([
+                             ':q' => $qty,
+                             ':exp' => $expiry,
+                             ':bn' => $batchNumber,
+                             ':nsq' => $newQty,
+                             ':nse' => $newExpiry,
+                             ':nbq' => json_encode($queue),
+                             ':id' => $row['id']
+                         ]);
+                } catch (Throwable $e) {}
+                $row['new_stock_expiry'] = $newExpiry;
+            } else {
+                $newQty = array_sum(array_column($queue, 'quantity'));
+            }
+
             $products[] = [
                 'id' => (string)$row['id'],
                 'name' => $row['name'],
                 'sku' => $row['sku'],
-                'category' => $row['category'] ?? 'Uncategorized',
+                'category' => $cat,
                 'description' => $row['description'],
-                'quantity' => (int)$row['quantity'],
+                'quantity' => $qty,
                 'price' => (float)$row['price'],
                 'cost' => (float)$row['cost'],
                 'reorderLevel' => (int)$row['reorder_level'],
-                'expiryDate' => $row['expiry_date'],
-                'newStockQuantity' => (int)($row['new_stock_quantity'] ?? 0),
-                'newStockExpiry' => $row['new_stock_expiry']
+                'expiryDate' => $expiry,
+                'newStockQuantity' => $newQty,
+                'newStockExpiry' => $row['new_stock_expiry'],
+                'batchNumber' => $batchNumber,
+                'newBatchQueue' => $queue
             ];
         }
 
@@ -172,6 +265,28 @@ elseif ($method === 'POST') {
             );
         }
 
+        $supplier = get_smart_supplier($name, $category_name);
+        $batch_number = trim($data['batchNumber'] ?? '');
+        if ($batch_number === '') {
+            $batch_number = '20261014-' . $supplier;
+        }
+
+        $new_batch_queue = $data['newBatchQueue'] ?? [];
+        if (!is_array($new_batch_queue)) {
+            $new_batch_queue = [];
+        }
+        if ($nb_qty > 0 && empty($new_batch_queue)) {
+            $new_batch_queue = [
+                [
+                    'batchNumber' => '20261014-' . $supplier,
+                    'supplier' => $supplier,
+                    'quantity' => $nb_qty,
+                    'expiryDate' => $nb_expiry
+                ]
+            ];
+        }
+        $nb_json = json_encode($new_batch_queue);
+
         $stmt = $conn->prepare(
             "INSERT INTO products
             (
@@ -185,7 +300,9 @@ elseif ($method === 'POST') {
                 reorder_level,
                 expiry_date,
                 new_stock_quantity,
-                new_stock_expiry
+                new_stock_expiry,
+                batch_number,
+                new_batch_queue
             )
             VALUES
             (
@@ -199,7 +316,9 @@ elseif ($method === 'POST') {
                 :reorder_level,
                 :expiry_date,
                 :new_stock_quantity,
-                :new_stock_expiry
+                :new_stock_expiry,
+                :batch_number,
+                :new_batch_queue
             )
             RETURNING id"
         );
@@ -215,7 +334,9 @@ elseif ($method === 'POST') {
             ':reorder_level' => $reorder,
             ':expiry_date' => $expiry,
             ':new_stock_quantity' => $nb_qty,
-            ':new_stock_expiry' => $nb_expiry
+            ':new_stock_expiry' => $nb_expiry,
+            ':batch_number' => $batch_number,
+            ':new_batch_queue' => $nb_json
         ]);
 
         $new_id = $stmt->fetchColumn();
@@ -337,13 +458,43 @@ elseif ($method === 'PUT') {
             ? $data['expiryDate']
             : null;
 
-        $nb_qty =
-            (int)($data['newStockQuantity'] ?? 0);
+        $supplier = get_smart_supplier($name, $category_name);
+        $batch_number = trim($data['batchNumber'] ?? '');
+        if ($batch_number === '') {
+            $batch_number = '20261014-' . $supplier;
+        }
 
-        $nb_expiry =
-            !empty($data['newStockExpiry'])
-            ? $data['newStockExpiry']
-            : null;
+        $new_batch_queue = $data['newBatchQueue'] ?? null;
+        if (is_array($new_batch_queue)) {
+            $nb_qty = array_sum(array_column($new_batch_queue, 'quantity'));
+            $expList = array_filter(array_column($new_batch_queue, 'expiryDate'));
+            $nb_expiry = !empty($expList) ? min($expList) : null;
+        } else {
+            if ($nb_qty > 0) {
+                $new_batch_queue = [
+                    [
+                        'batchNumber' => '20261014-' . $supplier,
+                        'supplier' => $supplier,
+                        'quantity' => $nb_qty,
+                        'expiryDate' => $nb_expiry
+                    ]
+                ];
+            } else {
+                $new_batch_queue = [];
+            }
+        }
+
+        // Auto-rotate if Old Batch is 0 and queue has batches
+        if ($qty <= 0 && is_array($new_batch_queue) && !empty($new_batch_queue)) {
+            $promoted = array_shift($new_batch_queue);
+            $qty = (int)$promoted['quantity'];
+            $expiry = $promoted['expiryDate'] ?? null;
+            $batch_number = $promoted['batchNumber'] ?? $batch_number;
+            $nb_qty = array_sum(array_column($new_batch_queue, 'quantity'));
+            $expList = array_filter(array_column($new_batch_queue, 'expiryDate'));
+            $nb_expiry = !empty($expList) ? min($expList) : null;
+        }
+        $nb_json = json_encode($new_batch_queue);
 
         $stmt = $conn->prepare(
             "UPDATE products
@@ -359,6 +510,8 @@ elseif ($method === 'PUT') {
                 expiry_date = :expiry_date,
                 new_stock_quantity = :new_stock_quantity,
                 new_stock_expiry = :new_stock_expiry,
+                batch_number = :batch_number,
+                new_batch_queue = :new_batch_queue,
                 updated_at = CURRENT_TIMESTAMP
              WHERE id = :id"
         );
@@ -375,6 +528,8 @@ elseif ($method === 'PUT') {
             ':expiry_date' => $expiry,
             ':new_stock_quantity' => $nb_qty,
             ':new_stock_expiry' => $nb_expiry,
+            ':batch_number' => $batch_number,
+            ':new_batch_queue' => $nb_json,
             ':id' => $id
         ]);
 

@@ -35,6 +35,13 @@ export interface User {
   lastLogin?: string;
 }
 
+export interface BatchItem {
+  batchNumber: string;
+  quantity: number;
+  expiryDate?: string;
+  supplier?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -48,6 +55,8 @@ export interface Product {
   description?: string;
   newStockQuantity?: number;
   newStockExpiry?: string;
+  batchNumber?: string;
+  newBatchQueue?: BatchItem[];
 }
 
 export interface Transaction {
