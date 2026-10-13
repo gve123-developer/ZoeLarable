@@ -83,6 +83,7 @@ if ($method === 'GET') {
                 p.new_stock_expiry,
                 p.batch_number,
                 p.new_batch_queue,
+                p.created_at,
                 c.name AS category
             FROM products p
             LEFT JOIN categories c
@@ -97,10 +98,12 @@ if ($method === 'GET') {
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $cat = $row['category'] ?? 'Uncategorized';
             $supplier = get_smart_supplier($row['name'], $cat);
+            $createdDateCode = !empty($row['created_at']) ? date('Ymd', strtotime($row['created_at'])) : date('Ymd');
+            $createdDateFull = !empty($row['created_at']) ? date('Y-m-d', strtotime($row['created_at'])) : date('Y-m-d');
 
             $batchNumber = $row['batch_number'] ?? '';
-            if (empty($batchNumber)) {
-                $batchNumber = '20261014-' . $supplier;
+            if (empty($batchNumber) || strpos($batchNumber, '20261014-') === 0) {
+                $batchNumber = $createdDateCode . '-' . $supplier;
                 try {
                     $conn->prepare("UPDATE products SET batch_number = :bn WHERE id = :id")
                          ->execute([':bn' => $batchNumber, ':id' => $row['id']]);
@@ -113,14 +116,35 @@ if ($method === 'GET') {
                 $queue = [];
             }
 
+            // Clean any legacy hardcoded 20261014 in queue
+            if (!empty($queue)) {
+                $queueModified = false;
+                foreach ($queue as &$qItem) {
+                    if (isset($qItem['batchNumber']) && strpos($qItem['batchNumber'], '20261014-') === 0) {
+                        $qArr = !empty($qItem['arrivalDate']) ? date('Ymd', strtotime($qItem['arrivalDate'])) : $createdDateCode;
+                        $qSup = $qItem['supplier'] ?? $supplier;
+                        $qItem['batchNumber'] = $qArr . '-' . $qSup;
+                        $queueModified = true;
+                    }
+                }
+                unset($qItem);
+                if ($queueModified) {
+                    try {
+                        $conn->prepare("UPDATE products SET new_batch_queue = :nbq WHERE id = :id")
+                             ->execute([':nbq' => json_encode($queue), ':id' => $row['id']]);
+                    } catch (Throwable $e) {}
+                }
+            }
+
             $newQty = (int)($row['new_stock_quantity'] ?? 0);
             if ($newQty > 0 && empty($queue)) {
                 $queue = [
                     [
-                        'batchNumber' => '20261014-' . $supplier,
+                        'batchNumber' => $createdDateCode . '-' . $supplier,
                         'supplier' => $supplier,
                         'quantity' => $newQty,
-                        'expiryDate' => $row['new_stock_expiry']
+                        'expiryDate' => $row['new_stock_expiry'],
+                        'arrivalDate' => $createdDateFull
                     ]
                 ];
                 try {
@@ -171,7 +195,8 @@ if ($method === 'GET') {
                 'newStockQuantity' => $newQty,
                 'newStockExpiry' => $row['new_stock_expiry'],
                 'batchNumber' => $batchNumber,
-                'newBatchQueue' => $queue
+                'newBatchQueue' => $queue,
+                'createdAt' => $row['created_at'] ?? null
             ];
         }
 
@@ -267,8 +292,9 @@ elseif ($method === 'POST') {
 
         $supplier = get_smart_supplier($name, $category_name);
         $batch_number = trim($data['batchNumber'] ?? '');
-        if ($batch_number === '') {
-            $batch_number = '20261014-' . $supplier;
+        if ($batch_number === '' || strpos($batch_number, '20261014-') === 0) {
+            $arr_code = !empty($data['arrivalDate']) ? date('Ymd', strtotime($data['arrivalDate'])) : date('Ymd');
+            $batch_number = $arr_code . '-' . $supplier;
         }
 
         $new_batch_queue = $data['newBatchQueue'] ?? [];
@@ -276,12 +302,15 @@ elseif ($method === 'POST') {
             $new_batch_queue = [];
         }
         if ($nb_qty > 0 && empty($new_batch_queue)) {
+            $nb_arr_date = !empty($data['newStockArrivalDate']) ? $data['newStockArrivalDate'] : date('Y-m-d');
+            $nb_arr = date('Ymd', strtotime($nb_arr_date));
             $new_batch_queue = [
                 [
-                    'batchNumber' => '20261014-' . $supplier,
+                    'batchNumber' => $nb_arr . '-' . $supplier,
                     'supplier' => $supplier,
                     'quantity' => $nb_qty,
-                    'expiryDate' => $nb_expiry
+                    'expiryDate' => $nb_expiry,
+                    'arrivalDate' => $nb_arr_date
                 ]
             ];
         }
@@ -460,23 +489,54 @@ elseif ($method === 'PUT') {
 
         $supplier = get_smart_supplier($name, $category_name);
         $batch_number = trim($data['batchNumber'] ?? '');
-        if ($batch_number === '') {
-            $batch_number = '20261014-' . $supplier;
+        if ($batch_number === '' || strpos($batch_number, '20261014-') === 0) {
+            $arr_code = !empty($data['arrivalDate']) ? date('Ymd', strtotime($data['arrivalDate'])) : date('Ymd');
+            $batch_number = $arr_code . '-' . $supplier;
         }
 
         $new_batch_queue = $data['newBatchQueue'] ?? null;
+        $nb_qty = 0;
+        $clean_queue = [];
+        $expList = [];
+
         if (is_array($new_batch_queue)) {
-            $nb_qty = array_sum(array_column($new_batch_queue, 'quantity'));
-            $expList = array_filter(array_column($new_batch_queue, 'expiryDate'));
+            foreach ($new_batch_queue as $item) {
+                if (!is_array($item)) continue;
+                $item_qty = (int)($item['quantity'] ?? 0);
+                if ($item_qty <= 0) continue;
+                $item_sup = trim($item['supplier'] ?? $supplier);
+                $item_arr = !empty($item['arrivalDate']) ? $item['arrivalDate'] : date('Y-m-d');
+                $item_code_prefix = date('Ymd', strtotime($item_arr));
+                $item_bn = trim($item['batchNumber'] ?? '');
+                if (empty($item_bn) || strpos($item_bn, '20261014-') === 0) {
+                    $item_bn = $item_code_prefix . '-' . ($item_sup ?: 'UNILAB');
+                }
+                $item_exp = !empty($item['expiryDate']) ? $item['expiryDate'] : null;
+                if ($item_exp) {
+                    $expList[] = $item_exp;
+                }
+                $nb_qty += $item_qty;
+                $clean_queue[] = [
+                    'batchNumber' => $item_bn,
+                    'supplier' => $item_sup ?: $supplier,
+                    'quantity' => $item_qty,
+                    'expiryDate' => $item_exp,
+                    'arrivalDate' => $item_arr
+                ];
+            }
+            $new_batch_queue = $clean_queue;
             $nb_expiry = !empty($expList) ? min($expList) : null;
         } else {
+            $nb_qty = (int)($data['newStockQuantity'] ?? 0);
+            $nb_expiry = !empty($data['newStockExpiry']) ? $data['newStockExpiry'] : null;
             if ($nb_qty > 0) {
                 $new_batch_queue = [
                     [
-                        'batchNumber' => '20261014-' . $supplier,
+                        'batchNumber' => date('Ymd') . '-' . $supplier,
                         'supplier' => $supplier,
                         'quantity' => $nb_qty,
-                        'expiryDate' => $nb_expiry
+                        'expiryDate' => $nb_expiry,
+                        'arrivalDate' => date('Y-m-d')
                     ]
                 ];
             } else {

@@ -40,6 +40,7 @@ export interface BatchItem {
   quantity: number;
   expiryDate?: string;
   supplier?: string;
+  arrivalDate?: string;
 }
 
 export interface Product {
@@ -57,6 +58,8 @@ export interface Product {
   newStockExpiry?: string;
   batchNumber?: string;
   newBatchQueue?: BatchItem[];
+  arrivalDate?: string;
+  createdAt?: string;
 }
 
 export interface Transaction {

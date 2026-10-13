@@ -46,12 +46,20 @@ const categories = ['Pharmaceutical', 'Non-pharmaceutical'];
 
 export const QUICK_SUPPLIERS = ['UNILAB', 'SANOFI', 'PFIZER', 'WYETH', 'IPI', 'GSK', 'PASCUAL', 'RHEA', 'GEN-MERCH'];
 
-export const getTodayBatchCode = (supplier: string) => {
+export const formatBatchCode = (arrivalDate?: string, supplier?: string) => {
+  if (arrivalDate && arrivalDate.includes('-')) {
+    const cleanDate = arrivalDate.replace(/-/g, '').slice(0, 8);
+    return `${cleanDate}-${(supplier || 'UNILAB').toUpperCase().trim()}`;
+  }
   const now = new Date();
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
   return `${yyyy}${mm}${dd}-${(supplier || 'UNILAB').toUpperCase().trim()}`;
+};
+
+export const getTodayBatchCode = (supplier?: string) => {
+  return formatBatchCode(undefined, supplier);
 };
 
 export function InventoryManagement({ currentUser, products, onProductsChange }: InventoryManagementProps) {
@@ -76,22 +84,24 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
   const [viewingQueueProduct, setViewingQueueProduct] = useState<Product | null>(null);
   const [incomingBatchQty, setIncomingBatchQty] = useState<number | ''>('');
   const [incomingBatchExp, setIncomingBatchExp] = useState<string>('');
+  const [incomingBatchArrivalDate, setIncomingBatchArrivalDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [incomingBatchNumber, setIncomingBatchNumber] = useState<string>('');
   const [incomingBatchSupplier, setIncomingBatchSupplier] = useState<string>('UNILAB');
 
   const handleAddBatchToQueue = () => {
-    if (!incomingBatchQty || incomingBatchQty <= 0) {
+    if (!incomingBatchQty || Number(incomingBatchQty) <= 0) {
       toast.error('Please enter a valid incoming batch quantity');
       return;
     }
-    const sup = incomingBatchSupplier || 'UNILAB';
-    const code = incomingBatchNumber.trim() || getTodayBatchCode(sup);
+    const sup = (incomingBatchSupplier || (formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
+    const arrDate = incomingBatchArrivalDate || new Date().toISOString().split('T')[0];
+    const code = (incomingBatchNumber.trim() || formatBatchCode(arrDate, sup)).toUpperCase();
     const currentQueue = Array.isArray(formData.newBatchQueue) ? [...formData.newBatchQueue] : [];
-    const existingIdx = currentQueue.findIndex(b => b.batchNumber.toUpperCase() === code.toUpperCase());
+    const existingIdx = currentQueue.findIndex(b => b.batchNumber.toUpperCase() === code);
 
     if (existingIdx >= 0) {
       const existing = currentQueue[existingIdx];
-      const newQty = existing.quantity + Number(incomingBatchQty);
+      const newQty = Number(existing.quantity) + Number(incomingBatchQty);
       let earliestExp = existing.expiryDate;
       if (incomingBatchExp) {
         if (!earliestExp || new Date(incomingBatchExp) < new Date(earliestExp)) {
@@ -101,7 +111,8 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
       currentQueue[existingIdx] = {
         ...existing,
         quantity: newQty,
-        expiryDate: earliestExp
+        expiryDate: earliestExp,
+        arrivalDate: existing.arrivalDate || arrDate
       };
       toast.success(`Accumulated +${incomingBatchQty} pcs into existing batch ${code}. Total: ${newQty} pcs`);
     } else {
@@ -109,7 +120,8 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         batchNumber: code,
         supplier: sup,
         quantity: Number(incomingBatchQty),
-        expiryDate: incomingBatchExp || undefined
+        expiryDate: incomingBatchExp || undefined,
+        arrivalDate: arrDate
       });
       toast.success(`Queued new batch ${code} with ${incomingBatchQty} pcs`);
     }
@@ -127,7 +139,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
 
     setIncomingBatchQty('');
     setIncomingBatchExp('');
-    setIncomingBatchNumber('');
+    setIncomingBatchNumber(formatBatchCode(arrDate, sup));
   };
 
   const onTriggerAddConfirm = () => {
@@ -185,33 +197,98 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
 
   const openEditDialog = (p: Product) => {
     const sup = p.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH';
-    const queue = Array.isArray(p.newBatchQueue) && p.newBatchQueue.length > 0
-      ? [...p.newBatchQueue]
+    const todayStr = new Date().toISOString().split('T')[0];
+    const initialArrDate = p.createdAt ? p.createdAt.slice(0, 10) : todayStr;
+
+    const queue: BatchItem[] = Array.isArray(p.newBatchQueue) && p.newBatchQueue.length > 0
+      ? p.newBatchQueue.map(b => ({
+          ...b,
+          batchNumber: (b.batchNumber && !b.batchNumber.startsWith('20261014-'))
+            ? b.batchNumber
+            : formatBatchCode(b.arrivalDate || todayStr, b.supplier || sup),
+          arrivalDate: b.arrivalDate || todayStr
+        }))
       : (p.newStockQuantity && p.newStockQuantity > 0
           ? [{
-              batchNumber: p.batchNumber ? p.batchNumber.replace(/^\d+/, '20261014') : getTodayBatchCode(sup),
+              batchNumber: formatBatchCode(todayStr, sup),
               supplier: sup,
               quantity: p.newStockQuantity,
-              expiryDate: p.newStockExpiry
+              expiryDate: p.newStockExpiry,
+              arrivalDate: todayStr
             }]
           : []);
+
+    const oldBatchNumber = (p.batchNumber && !p.batchNumber.startsWith('20261014-'))
+      ? p.batchNumber
+      : formatBatchCode(initialArrDate, sup);
+
+    const totalNew = queue.reduce((s, b) => s + Number(b.quantity || 0), 0);
+    const expList = queue.map(b => b.expiryDate).filter(Boolean) as string[];
 
     setEditingProduct(p);
     setFormData({
       ...p,
-      batchNumber: p.batchNumber || getTodayBatchCode(sup),
+      batchNumber: oldBatchNumber,
       newBatchQueue: queue,
-      newStockQuantity: queue.reduce((s, b) => s + Number(b.quantity || 0), 0)
+      newStockQuantity: totalNew,
+      newStockExpiry: expList.length > 0 ? expList.sort()[0] : p.newStockExpiry
     });
     setIncomingBatchQty('');
     setIncomingBatchExp('');
-    setIncomingBatchNumber('');
+    setIncomingBatchArrivalDate(todayStr);
     setIncomingBatchSupplier(sup);
+    setIncomingBatchNumber(formatBatchCode(todayStr, sup));
     setIsEditDialogOpen(true);
   };
 
   const handleEditProduct = async () => {
     if (!editingProduct) return;
+
+    // Check if the user filled in the incoming batch inputs without explicitly clicking "+ Queue Batch"
+    let currentQueue = Array.isArray(formData.newBatchQueue) ? [...formData.newBatchQueue] : [];
+    if (incomingBatchQty && Number(incomingBatchQty) > 0) {
+      const sup = (incomingBatchSupplier || (formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
+      const arrDate = incomingBatchArrivalDate || new Date().toISOString().split('T')[0];
+      const code = (incomingBatchNumber.trim() || formatBatchCode(arrDate, sup)).toUpperCase();
+      const existingIdx = currentQueue.findIndex(b => b.batchNumber.toUpperCase() === code);
+
+      if (existingIdx >= 0) {
+        const existing = currentQueue[existingIdx];
+        const newQty = Number(existing.quantity) + Number(incomingBatchQty);
+        let earliestExp = existing.expiryDate;
+        if (incomingBatchExp) {
+          if (!earliestExp || new Date(incomingBatchExp) < new Date(earliestExp)) {
+            earliestExp = incomingBatchExp;
+          }
+        }
+        currentQueue[existingIdx] = {
+          ...existing,
+          quantity: newQty,
+          expiryDate: earliestExp,
+          arrivalDate: existing.arrivalDate || arrDate
+        };
+      } else {
+        currentQueue.push({
+          batchNumber: code,
+          supplier: sup,
+          quantity: Number(incomingBatchQty),
+          expiryDate: incomingBatchExp || undefined,
+          arrivalDate: arrDate
+        });
+      }
+    }
+
+    const totalNewQty = currentQueue.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
+    const expList = currentQueue.map(b => b.expiryDate).filter(Boolean) as string[];
+    const earliestExp = expList.length > 0 ? expList.sort()[0] : null;
+
+    const payload = {
+      ...editingProduct,
+      ...formData,
+      newBatchQueue: currentQueue,
+      newStockQuantity: totalNewQty,
+      newStockExpiry: earliestExp
+    };
 
     try {
       const response = await fetch(`/api/products.php?id=${editingProduct.id}`, {
@@ -220,21 +297,29 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
           'Content-Type': 'application/json',
           'X-User-Name': currentUser.name
         },
-        body: JSON.stringify({ ...editingProduct, ...formData })
+        body: JSON.stringify(payload)
       });
       const data = await response.json();
       if (data.success) {
-        toast.success('Product updated successfully');
+        toast.success(`Product updated successfully! New Batch: ${totalNewQty} units.`);
         logAuditAction(
           currentUser.name,
           'Inventory Update',
-          `Updated product: ${formData.name} [SKU: ${formData.sku}] | Base Qty: ${formData.quantity} | New Stock: ${formData.newStockQuantity || 0}`
+          `Updated product: ${payload.name} [SKU: ${payload.sku}] | Base Qty: ${payload.quantity} | New Batch: ${totalNewQty} units`
         );
         setIsEditDialogOpen(false);
         setEditingProduct(null);
         setFormData({});
-        const updatedProducts = await fetch('/api/products.php').then(res => res.json());
-        onProductsChange(updatedProducts);
+        setIncomingBatchQty('');
+        setIncomingBatchExp('');
+        setIncomingBatchNumber('');
+
+        // Immediate fetch of fresh products from backend
+        const res = await fetch('/api/products.php');
+        const updatedProducts = await res.json();
+        if (Array.isArray(updatedProducts)) {
+          onProductsChange(updatedProducts);
+        }
       } else {
         toast.error('Failed to update product: ' + data.message);
       }
@@ -870,38 +955,53 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                             </div>
                           </TableCell>
                           <TableCell className="px-6 py-4 border-r border-gray-200 text-center">
-                            {product.newStockQuantity && product.newStockQuantity > 0 ? (
-                              <div className="flex flex-col items-center justify-center">
-                                {!isDateExpired(product.newStockExpiry) && (
-                                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[9px] font-black h-4 px-1.5 mb-1">NEW BATCH</Badge>
-                                )}
-                                <span className={`text-sm font-black ${isDateExpired(product.newStockExpiry) ? 'text-red-600' : 'text-blue-800'}`}>{product.newStockQuantity}</span>
-                                <span className={`text-[9px] font-bold uppercase ${isDateExpired(product.newStockExpiry) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {product.newStockExpiry || 'N/A'}</span>
-                                {product.newBatchQueue && product.newBatchQueue.length > 1 ? (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setViewingQueueProduct(product)}
-                                    className="h-5 px-1.5 py-0 text-[10px] font-black text-blue-700 bg-blue-100 hover:bg-blue-200 rounded mt-1 flex items-center gap-1 border border-blue-200 cursor-pointer shadow-xs"
-                                    title="Click to view all queued batches"
-                                  >
-                                    <Layers className="size-3 text-blue-600" />
-                                    {product.newBatchQueue.length} Batches ▾
-                                  </Button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setViewingQueueProduct(product)}
-                                    className="text-[9px] font-mono font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded mt-1 border border-blue-200 tracking-tight transition-colors cursor-pointer"
-                                    title="Click to inspect batch details"
-                                  >
-                                    {product.newBatchQueue?.[0]?.batchNumber || '20261014-UNILAB'}
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-[10px] text-gray-400 font-bold">-</span>
-                            )}
+                            {(() => {
+                              const queueBatches = Array.isArray(product.newBatchQueue) ? product.newBatchQueue : [];
+                              const queueTotalQty = queueBatches.reduce((acc, b) => acc + Number(b.quantity || 0), 0);
+                              const effectiveNewQty = Number(product.newStockQuantity || 0) > 0 ? Number(product.newStockQuantity) : queueTotalQty;
+                              const effectiveNewExpiry = product.newStockExpiry || (queueBatches.find(b => b.expiryDate)?.expiryDate);
+
+                              if (effectiveNewQty <= 0) {
+                                return <span className="text-[10px] text-gray-400 font-bold">-</span>;
+                              }
+
+                              const defaultSup = product.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH';
+                              const defaultCode = formatBatchCode(undefined, defaultSup);
+                              const firstBatchCode = (queueBatches[0]?.batchNumber && !queueBatches[0].batchNumber.startsWith('20261014-'))
+                                ? queueBatches[0].batchNumber
+                                : (product.batchNumber && !product.batchNumber.startsWith('20261014-') ? product.batchNumber : defaultCode);
+
+                              return (
+                                <div className="flex flex-col items-center justify-center">
+                                  {!isDateExpired(effectiveNewExpiry) && (
+                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[9px] font-black h-4 px-1.5 mb-1">NEW BATCH</Badge>
+                                  )}
+                                  <span className={`text-sm font-black ${isDateExpired(effectiveNewExpiry) ? 'text-red-600' : 'text-blue-800'}`}>{effectiveNewQty}</span>
+                                  <span className={`text-[9px] font-bold uppercase ${isDateExpired(effectiveNewExpiry) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {effectiveNewExpiry || 'N/A'}</span>
+                                  {queueBatches.length > 1 ? (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setViewingQueueProduct(product)}
+                                      className="h-5 px-1.5 py-0 text-[10px] font-black text-blue-700 bg-blue-100 hover:bg-blue-200 rounded mt-1 flex items-center gap-1 border border-blue-200 cursor-pointer shadow-xs"
+                                      title="Click to view all queued batches"
+                                    >
+                                      <Layers className="size-3 text-blue-600" />
+                                      {queueBatches.length} Batches ▾
+                                    </Button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewingQueueProduct(product)}
+                                      className="text-[9px] font-mono font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded mt-1 border border-blue-200 tracking-tight transition-colors cursor-pointer truncate max-w-[140px]"
+                                      title="Click to inspect batch details"
+                                    >
+                                      {firstBatchCode}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell className="px-6 py-4 border-r border-gray-200 text-sm">
                             <div className="flex flex-col">
@@ -997,196 +1097,344 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         {/* Edit Dialog */}
         <ErrorBoundary fallbackTitle="Edit Dialog Error">
           <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Edit Product</DialogTitle>
-                <DialogDescription>Update product details</DialogDescription>
+            <DialogContent className="max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto p-6 bg-white rounded-2xl shadow-2xl">
+              <DialogHeader className="pb-3 border-b border-gray-100 flex flex-row items-center justify-between">
+                <div>
+                  <DialogTitle className="text-xl font-black text-gray-900 flex items-center gap-2">
+                    <Package className="size-5 text-blue-600" />
+                    Edit Product & Batches
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-gray-500 mt-0.5">
+                    Product details on the left, and New Batch Restocking Queue on the right side.
+                  </DialogDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="font-mono text-xs font-bold text-gray-600 bg-gray-50">
+                    SKU: {formData.sku || editingProduct?.sku}
+                  </Badge>
+                  <Badge className="bg-blue-100 text-blue-800 border-none text-xs font-bold">
+                    {formData.category || editingProduct?.category}
+                  </Badge>
+                </div>
               </DialogHeader>
-              <div className="grid grid-cols-2 gap-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-name">Product Name</Label>
-                  <Input id="edit-name" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-sku">SKU</Label>
-                  <Input id="edit-sku" value={formData.sku || ''} onChange={(e) => setFormData({ ...formData, sku: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-category">Category</Label>
-                  <Select value={formData.category || ''} onValueChange={(value) => setFormData({ ...formData, category: value })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {categories.map(cat => (<SelectItem key={cat} value={cat}>{cat}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-quantity">Old Batch Qty</Label>
-                  <Input id="edit-quantity" type="number" value={formData.quantity || ''} onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-expiryDate">Old Batch Expiry Date</Label>
-                  <Input id="edit-expiryDate" type="date" value={formData.expiryDate || ''} onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })} />
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <Label htmlFor="edit-batchNumber">Old Batch Number</Label>
-                  <Input id="edit-batchNumber" value={formData.batchNumber || ''} placeholder="e.g. 20261014-UNILAB" onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })} className="font-mono" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-price">Selling Price (₱)</Label>
-                  <Input id="edit-price" type="number" step="0.01" value={formData.price || ''} onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-cost">Cost Price (₱)</Label>
-                  <Input id="edit-cost" type="number" step="0.01" value={formData.cost || ''} onChange={(e) => setFormData({ ...formData, cost: Number(e.target.value) })} />
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <Label htmlFor="edit-reorderLevel">Reorder Level</Label>
-                  <Input id="edit-reorderLevel" type="number" value={formData.reorderLevel || ''} onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })} />
-                </div>
 
-                {/* NEW BATCH QUEUE MANAGEMENT SECTION */}
-                <div className="col-span-2 p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3 my-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black text-blue-900 uppercase tracking-widest flex items-center gap-2">
-                      <Layers className="size-4 text-blue-600" /> New Batch Queue (FEFO Auto-Queue)
-                    </h4>
-                    <span className="text-xs font-black text-blue-800 bg-white px-2 py-0.5 rounded border border-blue-200 shadow-2xs">
-                      Total in Queue: {Number(formData.newStockQuantity || 0)} units
-                    </span>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 py-4 items-start">
+                {/* LEFT COLUMN: Product Details & Old Batch (6 cols) */}
+                <div className="lg:col-span-6 space-y-4">
+                  {/* Product Info Card */}
+                  <div className="p-4 bg-gray-50/80 border border-gray-200 rounded-xl space-y-3 shadow-2xs">
+                    <div className="text-xs font-black text-gray-800 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-gray-200">
+                      <Package className="size-3.5 text-gray-600" /> Product Information
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-name" className="text-xs font-bold text-gray-700">Product Name *</Label>
+                      <Input id="edit-name" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-white font-medium" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="edit-sku" className="text-xs font-bold text-gray-700">SKU Code *</Label>
+                        <Input id="edit-sku" value={formData.sku || ''} onChange={(e) => setFormData({ ...formData, sku: e.target.value })} className="bg-white font-mono" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="edit-category" className="text-xs font-bold text-gray-700">Category *</Label>
+                        <Select value={formData.category || ''} onValueChange={(value) => setFormData({ ...formData, category: value })}>
+                          <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {categories.map(cat => (<SelectItem key={cat} value={cat}>{cat}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="edit-price" className="text-xs font-bold text-gray-700">Selling Price (₱) *</Label>
+                        <Input id="edit-price" type="number" step="0.01" value={formData.price || ''} onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })} className="bg-white font-bold text-green-700" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="edit-cost" className="text-xs font-bold text-gray-700">Cost Price (₱) *</Label>
+                        <Input id="edit-cost" type="number" step="0.01" value={formData.cost || ''} onChange={(e) => setFormData({ ...formData, cost: Number(e.target.value) })} className="bg-white" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="edit-reorderLevel" className="text-xs font-bold text-gray-700">Reorder Level *</Label>
+                        <Input id="edit-reorderLevel" type="number" value={formData.reorderLevel || ''} onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })} className="bg-white" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="edit-description" className="text-xs font-bold text-gray-700">Description</Label>
+                        <Input id="edit-description" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="bg-white" placeholder="Optional details..." />
+                      </div>
+                    </div>
                   </div>
 
-                  {/* List of current batches in queue */}
-                  {Array.isArray(formData.newBatchQueue) && formData.newBatchQueue.length > 0 ? (
-                    <div className="bg-white rounded-lg border border-blue-200 overflow-hidden divide-y divide-gray-100">
-                      <div className="bg-blue-100/60 px-3 py-1.5 text-[10px] font-black uppercase text-blue-900 grid grid-cols-12 gap-2">
-                        <span className="col-span-1">#</span>
-                        <span className="col-span-4">Batch Number</span>
-                        <span className="col-span-3 text-center">Quantity</span>
-                        <span className="col-span-3 text-center">Expiry</span>
-                        <span className="col-span-1 text-right">Del</span>
+                  {/* Old Batch Card */}
+                  <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3 shadow-2xs">
+                    <div className="flex items-center justify-between pb-1 border-b border-amber-200">
+                      <div className="text-xs font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <Boxes className="size-3.5 text-amber-700" /> Old Batch (Active Stock in POS)
                       </div>
-                      {formData.newBatchQueue.map((b, idx) => (
-                        <div key={idx} className="px-3 py-2 text-xs grid grid-cols-12 gap-2 items-center hover:bg-gray-50/70">
-                          <span className="col-span-1 font-bold text-gray-400">#{idx + 1}</span>
-                          <span className="col-span-4 font-mono font-bold text-blue-900 truncate" title={b.batchNumber}>{b.batchNumber}</span>
-                          <span className="col-span-3 text-center font-black text-gray-800">{b.quantity} pcs</span>
-                          <span className="col-span-3 text-center text-gray-600 font-medium">{b.expiryDate || 'N/A'}</span>
-                          <div className="col-span-1 text-right">
-                            <button
-                              type="button"
-                              className="h-6 w-6 inline-flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 rounded cursor-pointer"
-                              onClick={() => {
-                                const q = [...(formData.newBatchQueue || [])];
-                                q.splice(idx, 1);
-                                const tot = q.reduce((s, itm) => s + Number(itm.quantity || 0), 0);
-                                const expArr = q.map(itm => itm.expiryDate).filter(Boolean) as string[];
-                                setFormData({
-                                  ...formData,
-                                  newBatchQueue: q,
-                                  newStockQuantity: tot,
-                                  newStockExpiry: expArr.length > 0 ? expArr.sort()[0] : undefined
-                                });
-                                toast.info(`Removed batch ${b.batchNumber} from queue`);
-                              }}
-                              title="Delete batch"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">Primary Stock</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="edit-quantity" className="text-xs font-bold text-gray-700">Old Batch Quantity *</Label>
+                        <Input id="edit-quantity" type="number" value={formData.quantity ?? ''} onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })} className="bg-white font-bold" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="edit-expiryDate" className="text-xs font-bold text-gray-700">Old Batch Expiry Date</Label>
+                        <Input id="edit-expiryDate" type="date" value={formData.expiryDate || ''} onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })} className="bg-white" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="edit-batchNumber" className="text-xs font-bold text-gray-700">Old Batch Number (Format: YYYYMMDD-SUPPLIER)</Label>
+                        <span className="text-[10px] text-gray-500 font-medium">Based on arrival date</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          id="edit-batchNumber"
+                          value={formData.batchNumber || ''}
+                          placeholder={formatBatchCode(undefined, formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')}
+                          onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
+                          className="font-mono bg-white font-bold text-blue-900"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const sup = formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH';
+                            const datePart = editingProduct?.createdAt ? editingProduct.createdAt.slice(0, 10) : new Date().toISOString().split('T')[0];
+                            setFormData({ ...formData, batchNumber: formatBatchCode(datePart, sup) });
+                          }}
+                          className="text-xs shrink-0 bg-white"
+                        >
+                          Auto-Format
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* RIGHT COLUMN (NASA GILID): New Batch Queue & Restocking (6 cols) */}
+                <div className="lg:col-span-6 space-y-4">
+                  <div className="p-4 bg-blue-50/80 border-2 border-blue-200 rounded-xl space-y-4 shadow-xs">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-blue-200">
+                      <div className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-1.5">
+                        <Layers className="size-4 text-blue-600" /> New Batch Queue & Restocking
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 shadow-2xs">
+                          Total in Queue: {Number(formData.newStockQuantity || 0)} pcs
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {/* Queued batches list */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[11px] font-black uppercase text-blue-900 tracking-wider">
+                          Waiting in Queue ({Array.isArray(formData.newBatchQueue) ? formData.newBatchQueue.length : 0} batches)
+                        </span>
+                        <span className="text-[10px] text-gray-500 font-medium">Automatic FEFO/FIFO Depletion</span>
+                      </div>
+
+                      {Array.isArray(formData.newBatchQueue) && formData.newBatchQueue.length > 0 ? (
+                        <div className="bg-white rounded-xl border border-blue-200 overflow-hidden divide-y divide-gray-100 max-h-[170px] overflow-y-auto shadow-2xs">
+                          <div className="bg-blue-100/70 px-3 py-1.5 text-[10px] font-black uppercase text-blue-900 grid grid-cols-12 gap-1.5 sticky top-0 z-10">
+                            <span className="col-span-1">#</span>
+                            <span className="col-span-4">Batch Number</span>
+                            <span className="col-span-2 text-center">Qty</span>
+                            <span className="col-span-2 text-center">Arrived</span>
+                            <span className="col-span-2 text-center">Expiry</span>
+                            <span className="col-span-1 text-right">Del</span>
                           </div>
+                          {formData.newBatchQueue.map((b, idx) => (
+                            <div key={idx} className="px-3 py-2 text-xs grid grid-cols-12 gap-1.5 items-center hover:bg-blue-50/40">
+                              <span className="col-span-1 font-bold text-gray-400">#{idx + 1}</span>
+                              <span className="col-span-4 font-mono font-bold text-blue-900 truncate" title={b.batchNumber}>{b.batchNumber}</span>
+                              <span className="col-span-2 text-center font-black text-gray-800">{b.quantity} pcs</span>
+                              <span className="col-span-2 text-center text-[10px] font-medium text-gray-500 truncate" title={b.arrivalDate || 'N/A'}>{b.arrivalDate ? b.arrivalDate.slice(5) : 'N/A'}</span>
+                              <span className="col-span-2 text-center text-[10px] font-medium text-gray-600 truncate" title={b.expiryDate || 'N/A'}>{b.expiryDate || 'N/A'}</span>
+                              <div className="col-span-1 text-right">
+                                <button
+                                  type="button"
+                                  className="h-6 w-6 inline-flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 rounded cursor-pointer transition-colors"
+                                  onClick={() => {
+                                    const q = [...(formData.newBatchQueue || [])];
+                                    q.splice(idx, 1);
+                                    const tot = q.reduce((s, itm) => s + Number(itm.quantity || 0), 0);
+                                    const expArr = q.map(itm => itm.expiryDate).filter(Boolean) as string[];
+                                    setFormData({
+                                      ...formData,
+                                      newBatchQueue: q,
+                                      newStockQuantity: tot,
+                                      newStockExpiry: expArr.length > 0 ? expArr.sort()[0] : undefined
+                                    });
+                                    toast.info(`Removed batch ${b.batchNumber} from queue`);
+                                  }}
+                                  title="Remove this batch"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-3 text-center text-xs text-gray-500 bg-white/70 rounded-lg border border-dashed border-blue-200">
-                      No batches currently queued. Add an incoming batch below.
-                    </div>
-                  )}
-
-                  {/* Restock / Add Batch Input Controls */}
-                  <div className="p-3 bg-white border border-blue-100 rounded-lg space-y-2.5">
-                    <div className="text-[10px] font-black text-blue-700 uppercase tracking-wider flex items-center justify-between">
-                      <span>+ Add / Restock Batch into Queue</span>
-                      <span className="text-[9px] font-medium text-gray-400">Same batch # auto-accumulates</span>
+                      ) : (
+                        <div className="p-3 text-center text-xs text-gray-500 bg-white rounded-xl border border-dashed border-blue-200">
+                          No incoming batches in queue. Fill out the form below to add.
+                        </div>
+                      )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2.5">
-                      <div className="space-y-1">
-                        <Label htmlFor="incoming-qty" className="text-[10px] font-bold text-gray-600">Incoming Qty *</Label>
-                        <Input
-                          id="incoming-qty"
-                          type="number"
-                          placeholder="e.g. 200"
-                          value={incomingBatchQty}
-                          onChange={(e) => setIncomingBatchQty(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="h-8 text-xs bg-gray-50/50"
-                        />
+                    {/* Add / Restock Batch Form */}
+                    <div className="p-3.5 bg-white border border-blue-200 rounded-xl space-y-3 shadow-2xs">
+                      <div className="flex items-center justify-between pb-1 border-b border-gray-100">
+                        <span className="text-[11px] font-black text-blue-800 uppercase tracking-wider flex items-center gap-1">
+                          <Plus className="size-3.5 text-blue-600" /> Add Incoming Restock Batch
+                        </span>
+                        <span className="text-[9px] font-semibold text-gray-400">Same batch # auto-accumulates</span>
                       </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="incoming-exp" className="text-[10px] font-bold text-gray-600">Expiry Date</Label>
-                        <Input
-                          id="incoming-exp"
-                          type="date"
-                          value={incomingBatchExp}
-                          onChange={(e) => setIncomingBatchExp(e.target.value)}
-                          className="h-8 text-xs bg-gray-50/50"
-                        />
+
+                      {/* Row 1: Arrival Date + Supplier */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="incoming-arrival" className="text-[10px] font-bold text-gray-700 flex items-center justify-between">
+                            <span>Arrival Date (Dumating) *</span>
+                          </Label>
+                          <Input
+                            id="incoming-arrival"
+                            type="date"
+                            value={incomingBatchArrivalDate}
+                            onChange={(e) => {
+                              const newDate = e.target.value;
+                              setIncomingBatchArrivalDate(newDate);
+                              setIncomingBatchNumber(formatBatchCode(newDate, incomingBatchSupplier));
+                            }}
+                            className="h-8 text-xs bg-gray-50/50"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label htmlFor="incoming-supplier" className="text-[10px] font-bold text-gray-700">Supplier *</Label>
+                          <Input
+                            id="incoming-supplier"
+                            value={incomingBatchSupplier}
+                            placeholder="e.g. UNILAB"
+                            onChange={(e) => {
+                              const newSup = e.target.value.toUpperCase();
+                              setIncomingBatchSupplier(newSup);
+                              setIncomingBatchNumber(formatBatchCode(incomingBatchArrivalDate, newSup));
+                            }}
+                            className="h-8 text-xs uppercase font-bold bg-gray-50/50"
+                          />
+                        </div>
                       </div>
+
+                      {/* Row 2: Incoming Qty + Expiry Date */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="incoming-qty" className="text-[10px] font-bold text-gray-700">Incoming Quantity *</Label>
+                          <Input
+                            id="incoming-qty"
+                            type="number"
+                            placeholder="e.g. 200"
+                            value={incomingBatchQty}
+                            onChange={(e) => setIncomingBatchQty(e.target.value === '' ? '' : Number(e.target.value))}
+                            className="h-8 text-xs font-bold bg-gray-50/50"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="incoming-exp" className="text-[10px] font-bold text-gray-700">Expiry Date</Label>
+                          <Input
+                            id="incoming-exp"
+                            type="date"
+                            value={incomingBatchExp}
+                            onChange={(e) => setIncomingBatchExp(e.target.value)}
+                            className="h-8 text-xs bg-gray-50/50"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Row 3: Generated Batch Number Preview */}
                       <div className="space-y-1">
-                        <Label htmlFor="incoming-batch" className="text-[10px] font-bold text-gray-600">Batch Number</Label>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="incoming-batch" className="text-[10px] font-bold text-gray-700">
+                            Batch Code (Format: YYYYMMDD-Supplier)
+                          </Label>
+                          <span className="text-[9px] text-blue-600 font-bold">Auto-generated from arrival date</span>
+                        </div>
                         <Input
                           id="incoming-batch"
                           placeholder="YYYYMMDD-SUPPLIER"
                           value={incomingBatchNumber}
-                          onChange={(e) => setIncomingBatchNumber(e.target.value)}
-                          className="h-8 text-xs font-mono bg-gray-50/50"
+                          onChange={(e) => setIncomingBatchNumber(e.target.value.toUpperCase())}
+                          className="h-8 text-xs font-mono font-bold text-blue-900 bg-blue-50/30 border-blue-200"
                         />
                       </div>
-                    </div>
 
-                    {/* Quick supplier chips */}
-                    <div className="flex flex-wrap items-center gap-1 pt-1">
-                      <span className="text-[10px] font-bold text-gray-400 mr-1">Quick Supplier:</span>
-                      {QUICK_SUPPLIERS.map((sup) => (
-                        <button
-                          key={sup}
+                      {/* Row 4: Quick Supplier Chips */}
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        <span className="text-[9px] font-bold text-gray-400 mr-1">Quick Supplier:</span>
+                        {QUICK_SUPPLIERS.map((sup) => (
+                          <button
+                            key={sup}
+                            type="button"
+                            onClick={() => {
+                              setIncomingBatchSupplier(sup);
+                              setIncomingBatchNumber(formatBatchCode(incomingBatchArrivalDate, sup));
+                            }}
+                            className={`text-[9px] font-black px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                              incomingBatchSupplier === sup
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
+                            }`}
+                          >
+                            {sup}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Action Button: Queue Batch */}
+                      <div className="pt-1">
+                        <Button
                           type="button"
-                          onClick={() => {
-                            setIncomingBatchSupplier(sup);
-                            setIncomingBatchNumber(getTodayBatchCode(sup));
-                          }}
-                          className={`text-[9px] font-black px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
-                            incomingBatchSupplier === sup
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
-                          }`}
+                          size="sm"
+                          onClick={handleAddBatchToQueue}
+                          className="w-full h-8 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                         >
-                          {sup}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="pt-1 flex justify-end">
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={handleAddBatchToQueue}
-                        className="h-8 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Plus className="size-3.5" />
-                        Queue Batch (Auto-accumulate if same)
-                      </Button>
+                          <Plus className="size-3.5" />
+                          + Queue This Batch (Auto-accumulate if same batch #)
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div className="space-y-2 col-span-2">
-                  <Label htmlFor="edit-description">Description</Label>
-                  <Input id="edit-description" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
-                </div>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => { setIsEditDialogOpen(false); setFormData({}); setEditingProduct(null); }}>Cancel</Button>
-                <Button onClick={() => setShowSaveConfirm(true)}>Save Changes</Button>
+
+              <DialogFooter className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-xs text-gray-600 flex items-center gap-2">
+                  <span className="font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                    Old Batch: {formData.quantity || 0}
+                  </span>
+                  <span>+</span>
+                  <span className="font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">
+                    New Batch Queue: {formData.newStockQuantity || 0}
+                  </span>
+                  <span>=</span>
+                  <span className="font-black text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
+                    Total: {Number(formData.quantity || 0) + Number(formData.newStockQuantity || 0)} units
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={() => { setIsEditDialogOpen(false); setFormData({}); setEditingProduct(null); }}>
+                    Cancel
+                  </Button>
+                  <Button onClick={() => setShowSaveConfirm(true)} className="bg-blue-700 hover:bg-blue-800 text-white font-bold">
+                    Save Changes
+                  </Button>
+                </div>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -1404,6 +1652,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                             <th className="p-2.5">Priority</th>
                             <th className="p-2.5">Batch Number</th>
                             <th className="p-2.5 text-center">Supplier</th>
+                            <th className="p-2.5 text-center">Arrival Date</th>
                             <th className="p-2.5 text-center">Quantity</th>
                             <th className="p-2.5 text-center">Expiry Date</th>
                             <th className="p-2.5 text-center">FEFO Status</th>
@@ -1425,6 +1674,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                               <td className="p-2.5 text-center">
                                 <span className="text-[10px] font-black uppercase bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">{b.supplier || 'N/A'}</span>
                               </td>
+                              <td className="p-2.5 text-center text-gray-600 font-medium">{b.arrivalDate || 'N/A'}</td>
                               <td className="p-2.5 text-center font-black text-gray-900">{b.quantity} pcs</td>
                               <td className="p-2.5 text-center font-bold text-gray-700">{b.expiryDate || 'N/A'}</td>
                               <td className="p-2.5 text-center">
