@@ -176,11 +176,13 @@ export function getProductImage(product: { sku: string; name: string; category?:
   let brandTag = 'Generic';
   const brandKeywords = [
     'Advil', 'Alaxan', 'Alcoplus', 'Allerkid', 'Allerta', 'Alnix', 'Amoxicillin',
-    'Ascof', 'Betadine', 'Biogesic', 'Bioflu', 'Buscopan', 'Calpol', 'Ceelin',
+    'Ascof', 'Betadine', 'Bioderm', 'Biogesic', 'Bioflu', 'Buscopan', 'Calpol', 'Ceelin',
     'Centrum', 'Cherifer', 'Colgate', 'Decolgen', 'Diatabs', 'Dove', 'Efficascent',
     'Enervon', 'Eskinol', 'Johnson', 'Kremil-S', 'Maxi-Peel', 'Neozep', 'Nivea',
     'Poten-Cee', 'Rexona', 'Robitussin', 'Safeguard', 'Solmux', 'Tempra', 'Vicks',
-    'White Flower', 'Zithromax', 'Zykast', 'Ace', 'IPI', 'Rhea', 'Pharex', 'RiteMed'
+    'White Flower', 'Zithromax', 'Zykast', 'Ace', 'IPI', 'Rhea', 'Pharex', 'RiteMed',
+    'Bench', 'Silka', 'Kojiesan', 'Creamsilk', 'Palmolive', 'Strepsils', 'Hapee',
+    'Sensodyne', 'Close Up', 'Ponds', 'Olay', 'Myra', 'Charmee', 'Modess', 'EQ', 'Casino', 'Bigen'
   ];
 
   for (const b of brandKeywords) {
