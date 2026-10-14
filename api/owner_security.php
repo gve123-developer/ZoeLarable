@@ -241,7 +241,7 @@ try {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'message' => 'Internal server error processing owner authorization.'
+        'message' => 'Internal error: ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine()
     ]);
     exit();
 }
