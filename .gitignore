@@ -1,43 +1,19 @@
+# Dependencies & Build artifacts
 node_modules/
-debug_error.log
-mysql_data/
+vendor/
 .vite/
-api/reset_emails.log
 .vs/
 
-mysql_data_backup/
-vendor/
-src/app/App.tsx.backup
-src/app/App.tsx.backup2
-test_postgres.php
+# Runtime logs & local databases
+debug_error.log
 api/reset_emails.log
-inventory_system_setup_mysql_backup.sql
-inventory_system_setup_postgresql.sql
+api/owner_passcode.log
+mysql_data/
+mysql_data_backup/
 
-# Local database/import artifacts
-*.dump
+# Temporary and backup files
 *.bak
-current_products.csv
-
-# Temporary fix files
+*.backup*
+~$*
 Dashboard.fixed.tsx
 patch_forecasting_voided_transactions.ps1
-
-# Product migration scripts
-zoe_apply_final_product_details.sql
-zoe_bulk_master_sync.sql
-*.xlsx
-zoe_pos_system_database_backup.sql
-
-# Local database/import artifacts
-*.dump
-*.bak
-current_products.csv
-
-# Temporary fix files
-Dashboard.fixed.tsx
-patch_forecasting_voided_transactions.ps1
-
-# Product migration scripts
-zoe_apply_final_product_details.sql
-zoe_bulk_master_sync.sql

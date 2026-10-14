@@ -48,8 +48,10 @@ CREATE TABLE IF NOT EXISTS products (
     cost NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     reorder_level INTEGER NOT NULL DEFAULT 10,
     expiry_date DATE,
+    batch_number VARCHAR(100),
     new_stock_quantity INTEGER NOT NULL DEFAULT 0,
     new_stock_expiry DATE,
+    new_batch_queue TEXT DEFAULT '[]',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -125,6 +127,10 @@ CREATE TABLE IF NOT EXISTS deleted_products (
     cost NUMERIC(10,2) DEFAULT 0.00,
     reorder_level INTEGER DEFAULT 0,
     expiry_date DATE,
+    batch_number VARCHAR(100),
+    new_stock_quantity INTEGER DEFAULT 0,
+    new_stock_expiry DATE,
+    new_batch_queue TEXT DEFAULT '[]',
     deleted_by VARCHAR(100),
     deleted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

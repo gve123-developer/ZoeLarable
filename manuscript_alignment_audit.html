@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manuscript vs. Presentation Alignment Audit & Defense Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-dark: #0369a1;
+      --primary-light: #e0f2fe;
+      --slate-50: #f8fafc;
+      --slate-100: #f1f5f9;
+      --slate-200: #e2e8f0;
+      --slate-300: #cbd5e1;
+      --slate-600: #475569;
+      --slate-700: #334155;
+      --slate-800: #1e293b;
+      --slate-900: #0f172a;
+      --emerald-600: #059669;
+      --emerald-50: #ecfdf5;
+      --amber-600: #d97706;
+      --amber-50: #fffbeb;
+      --rose-600: #e11d48;
+      --rose-50: #fff1f2;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--slate-800);
+      background-color: var(--slate-100);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+      padding: 3rem;
+      border: 1px solid var(--slate-200);
+    }
+
+    /* Header styling */
+    .header {
+      border-bottom: 2px solid var(--slate-200);
+      padding-bottom: 2rem;
+      margin-bottom: 2.5rem;
+      position: relative;
+    }
+
+    .sub-institution {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--primary);
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .title {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--slate-900);
+      line-height: 1.25;
+      margin-bottom: 1rem;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      background: var(--slate-50);
+      padding: 1.25rem;
+      border-radius: 12px;
+      border: 1px solid var(--slate-200);
+      font-size: 0.9rem;
+    }
+
+    .meta-item strong {
+      display: block;
+      color: var(--slate-600);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Print & Export buttons */
+    .action-bar {
+      display: flex;
+      gap: 1rem;
+      margin: 1.5rem 0 2rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1.25rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: var(--primary-dark);
+    }
+
+    .btn-outline {
+      background: #fff;
+      color: var(--slate-700);
+      border: 1px solid var(--slate-300);
+    }
+    .btn-outline:hover {
+      background: var(--slate-50);
+      border-color: var(--slate-400);
+    }
+
+    /* KPI Summary Cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 1.25rem;
+      margin: 2rem 0;
+    }
+
+    .kpi-card {
+      padding: 1.25rem;
+      border-radius: 12px;
+      border: 1px solid var(--slate-200);
+      background: var(--slate-50);
+    }
+
+    .kpi-card.success {
+      border-color: #86efac;
+      background: var(--emerald-50);
+    }
+
+    .kpi-card.warning {
+      border-color: #fde047;
+      background: var(--amber-50);
+    }
+
+    .kpi-card.danger {
+      border-color: #fca5a5;
+      background: var(--rose-50);
+    }
+
+    .kpi-number {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: var(--slate-900);
+      margin-bottom: 0.25rem;
+    }
+
+    .kpi-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--slate-600);
+    }
+
+    .kpi-sub {
+      font-size: 0.75rem;
+      color: var(--slate-600);
+      margin-top: 0.25rem;
+    }
+
+    /* Section Headings */
+    h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--slate-900);
+      margin: 2.5rem 0 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--slate-200);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--slate-800);
+      margin: 1.5rem 0 0.75rem;
+    }
+
+    p {
+      margin-bottom: 1rem;
+      color: var(--slate-700);
+    }
+
+    /* Tables */
+    .table-container {
+      overflow-x: auto;
+      margin: 1.5rem 0 2rem;
+      border: 1px solid var(--slate-200);
+      border-radius: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      text-align: left;
+    }
+
+    th {
+      background: var(--slate-50);
+      color: var(--slate-700);
+      font-weight: 600;
+      padding: 0.75rem 1rem;
+      border-bottom: 2px solid var(--slate-200);
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+
+    td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--slate-200);
+      vertical-align: top;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: #fafafa;
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge-success {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    .badge-warning {
+      background: #fef3c7;
+      color: #b45309;
+    }
+
+    .badge-danger {
+      background: #ffe4e6;
+      color: #be123c;
+    }
+
+    /* Discrepancy Alert Cards */
+    .alert-box {
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      border: 1px solid;
+    }
+
+    .alert-danger {
+      background: var(--rose-50);
+      border-color: #fecdd3;
+    }
+
+    .alert-warning {
+      background: var(--amber-50);
+      border-color: #fde68a;
+    }
+
+    .alert-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .alert-danger .alert-title {
+      color: #9f1239;
+    }
+
+    .alert-warning .alert-title {
+      color: #92400e;
+    }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+
+    .comp-col {
+      background: #ffffff;
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--slate-200);
+      font-size: 0.88rem;
+    }
+
+    .comp-col.slide-col {
+      border-left: 4px solid #ef4444;
+    }
+
+    .comp-col.doc-col {
+      border-left: 4px solid #10b981;
+    }
+
+    .comp-col h4 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+      color: var(--slate-600);
+    }
+
+    .script-box {
+      background: #ffffff;
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      border-left: 4px solid var(--primary);
+      margin-top: 1rem;
+      font-style: italic;
+      color: var(--slate-800);
+      font-size: 0.9rem;
+    }
+
+    /* Checklist */
+    .checklist {
+      list-style: none;
+      margin: 1rem 0;
+    }
+
+    .checklist li {
+      padding: 0.6rem 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      font-size: 0.92rem;
+      border-bottom: 1px dashed var(--slate-200);
+    }
+
+    .checklist li:last-child {
+      border-bottom: none;
+    }
+
+    .check-icon {
+      font-weight: bold;
+      color: var(--primary);
+    }
+
+    /* Print Styles */
+    @media print {
+      body {
+        background: #ffffff;
+        padding: 0;
+      }
+      .container {
+        box-shadow: none;
+        border: none;
+        padding: 0;
+        max-width: 100%;
+      }
+      .action-bar {
+        display: none;
+      }
+      .alert-box {
+        break-inside: avoid;
+      }
+      table {
+        font-size: 0.78rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="sub-institution">National Aviation Academy of the Philippines • Institute of Computer Studies</div>
+      <h1 class="title">Manuscript vs. Presentation Alignment Audit & Defense Guide</h1>
+      <p style="font-size: 1.05rem; font-weight: 500; color: var(--slate-700); margin-bottom: 1.25rem;">
+        A Web-Based Inventory and Point-of-Sale (POS) System with Data Analytics for Zoe Pharmacy and General Merchandise
+      </p>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <strong>Authors</strong>
+          Faduga, F.M. • Gipaya, V.E. • Villanueva, E.J.
+        </div>
+        <div class="meta-item">
+          <strong>Degree & Campus</strong>
+          BS in Aviation IT • Pasay City
+        </div>
+        <div class="meta-item">
+          <strong>Documents Audited</strong>
+          146-Page PDF Manuscript vs. 18 Google Slides
+        </div>
+        <div class="meta-item">
+          <strong>Defense Date</strong>
+          October 2026
+        </div>
+      </div>
+    </header>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+      <button class="btn btn-primary" onclick="window.print()">
+        🖨️ Print or Save as PDF
+      </button>
+      <a class="btn btn-outline" href="https://docs.google.com/presentation/d/1_Coo7kTznayad9x1G3IidsrcNoHkJoEe07iG8jTfD3I/edit" target="_blank">
+        📊 Open Google Slides
+      </a>
+      <a class="btn btn-outline" href="file:///c:/Users/Asus/Downloads/Website/MANUSCRIPT_VS_PRESENTATION_ALIGNMENT_AUDIT.md" target="_blank">
+        📝 Open Markdown File
+      </a>
+    </div>
+
+    <!-- Executive Summary Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card success">
+        <div class="kpi-number">100%</div>
+        <div class="kpi-label">Architecture & Methodology</div>
+        <div class="kpi-sub">Waterfall, React/PHP/PostgreSQL & FIFO/FEFO fully synced.</div>
+      </div>
+      <div class="kpi-card success">
+        <div class="kpi-number">68.95%</div>
+        <div class="kpi-label">Financial ROI (Identical)</div>
+        <div class="kpi-sub">CapEx ₱85,800, NPV ₱50,878, 1.78-yr payback exact match.</div>
+      </div>
+      <div class="kpi-card success">
+        <div class="kpi-number">0.83%</div>
+        <div class="kpi-label">Inventory Discrepancy</div>
+        <div class="kpi-sub">Exact reduction from 17.32% across both documents.</div>
+      </div>
+      <div class="kpi-card danger">
+        <div class="kpi-number">3 Items</div>
+        <div class="kpi-label">Slide Discrepancies</div>
+        <div class="kpi-sub">Older draft figures on Slides 8, 9, 11, 13, and 16 require sync.</div>
+      </div>
+    </div>
+
+    <!-- Section 1: Master Mapping -->
+    <h2>1. Master Slide-by-Slide to Manuscript Mapping</h2>
+    <p>Every slide in your 18-slide deck was cross-referenced with the exact chapters, pages, tables, and figures of your 146-page manuscript:</p>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Slide #</th>
+            <th>Slide Title</th>
+            <th>Manuscript Chapter & Page</th>
+            <th>Alignment Status</th>
+            <th>Verification Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Slide 1</strong></td>
+            <td>Title Slide</td>
+            <td>Page 1 (Title Page)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Title, authors, NAAP ICS, BS Aviation IT, and October 2026 date align perfectly.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 2</strong></td>
+            <td>Project Context: Manual to Unified System</td>
+            <td>Ch. 1 (pp. 2–4, 6–8); Ch. 2 (pp. 32–33)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Dual-operator setup (Margarita & Inigo), logbook delays, unmonitored spoilage, and retail-pharmacy compliance gap.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 3</strong></td>
+            <td>Research Focus & Objectives</td>
+            <td>Ch. 1 (pp. 4–5 [RQs]; pp. 11–12 [Objectives])</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Word-for-word alignment with the five (5) research questions and specific objectives.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 4</strong></td>
+            <td>Proposed System: Core Features</td>
+            <td>Ch. 1 (pp. 8–9); Ch. 3 (pp. 41–42, 67–68, 75–77)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Covers Inventory, POS, FIFO/FEFO rules, color-coded alerts, analytics dashboard, and printable PDF audit reports.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 5</strong></td>
+            <td>System Architecture & Workflow</td>
+            <td>Ch. 3 (pp. 34–35, 70–73, 78–84, Figs 3–6)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>3-Tier Thick Client (React.js/Vite frontend, PHP RESTful API, PostgreSQL DB), Context Diagram, and DFD Level 0.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 6</strong></td>
+            <td>Demand Forecasting: SMA vs. Exponential Smoothing</td>
+            <td>Ch. 1 (p. 3); Ch. 2 (pp. 28–30); Ch. 3 (pp. 73–75)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Rationale for α = 0.7 smoothing constant over 3-day static SMA to absorb volatile local demand shocks.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 7</strong></td>
+            <td>Research Methodology</td>
+            <td>Ch. 4 (pp. 94–102)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Quasi-experimental one-group design; 10 IT experts (ISO 25010), 2 store owners (TAM), 50 simulated sales, 23-day data window.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 8</strong></td>
+            <td>Reported Results & Key Findings</td>
+            <td>Ch. 4 (pp. 118–123); Ch. 5 (pp. 126–129)</td>
+            <td><span class="badge badge-danger">Discrepancy</span></td>
+            <td>Slide uses older values for checkout speed (84.15s vs 37.38s) and forecasting error metrics (2.92 vs 0.54).</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 9</strong></td>
+            <td>Objective 1 — Operational Impact</td>
+            <td>Ch. 4 (p. 119, Table 30); Ch. 5 (p. 126, 129)</td>
+            <td><span class="badge badge-danger">Discrepancy</span></td>
+            <td>Slide lists digital checkout at 84.15s (60.07% reduction). Manuscript Table 30 records <strong>37.38s (82.26% reduction)</strong>.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 10</strong></td>
+            <td>Objective 2 — Inventory Control</td>
+            <td>Ch. 4 (p. 120, Table 31); Ch. 5 (p. 126, 130)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Baseline physical discrepancy of 17.32% (15/120 SKUs) reduced to 0.83% post-implementation. Identical.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 11</strong></td>
+            <td>Objective 3 — Forecasting Accuracy</td>
+            <td>Ch. 4 (pp. 121–122, Table 32); Ch. 5 (pp. 127, 130–131)</td>
+            <td><span class="badge badge-danger">Critical Discrepancy</span></td>
+            <td>Slide claims ES won (MAPE 8.40% vs 22.85%). Manuscript Table 32 proves SMA had lower error (MAE 0.52 vs 0.54); H1 was NOT supported.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 12</strong></td>
+            <td>Objective 4 — User Acceptance (TAM)</td>
+            <td>Ch. 4 (pp. 113–118, Tables 25–29); Ch. 5 (p. 128)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Composite Mean = 3.68/4.00 (PU = 3.90, PEOU = 3.80, Attitude = 3.70, Intention = 3.50, Actual Use = 3.50).</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 13</strong></td>
+            <td>Objective 5 — Software Quality (ISO 25010)</td>
+            <td>Ch. 4 (pp. 104–113, Tables 16–24); Ch. 5 (p. 128)</td>
+            <td><span class="badge badge-warning">Minor Discrepancy</span></td>
+            <td>Grand Mean = 3.60 across both. Slide lists Security at 3.26; Manuscript Table 21 lists Security at <strong>3.14</strong> (Admin override = 2.30).</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 14</strong></td>
+            <td>Scope, Limitations & Practical Value</td>
+            <td>Ch. 1 (pp. 14–18)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Scope boundaries: single micro-enterprise, no BIR official receipts, no GCash API, no native app, 23-calendar-day dataset.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 15</strong></td>
+            <td>Financial Feasibility (CBA Model)</td>
+            <td>Ch. 3 (pp. 60–65, Tables 10–13); Ch. 5 (p. 129)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>CapEx ₱85,800; Tangible Annual ₱48,320; 3-Yr Benefit ₱144,960; ROI 68.95%; NPV ₱50,878; Payback 1.78 yrs. Exact to the peso!</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 16</strong></td>
+            <td>Conclusions</td>
+            <td>Ch. 5 (pp. 129–131)</td>
+            <td><span class="badge badge-warning">Needs Sync</span></td>
+            <td>Update checkout reduction to 82.26% and reflect that SMA and ES were comparable over the 23-day window.</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 17</strong></td>
+            <td>Recommendations</td>
+            <td>Ch. 4 (pp. 123–124, Table 33); Ch. 5 (pp. 132–134)</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>30-to-60 day parallel run, cloud backups, 15-minute auto session timeout, and ranked enhancements (Barcode #1, Cashless #2, BIR #3).</td>
+          </tr>
+          <tr>
+            <td><strong>Slide 18</strong></td>
+            <td>Closing / Q&A Slide</td>
+            <td>Page 1</td>
+            <td><span class="badge badge-success">100% Match</span></td>
+            <td>Department and institution credits.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section 2: Critical Discrepancies -->
+    <h2>2. Detailed Analysis of the Three (3) Discrepancies</h2>
+
+    <!-- Discrepancy 1 -->
+    <div class="alert-box alert-danger">
+      <div class="alert-title">🚨 Discrepancy #1: Objective 3 — Forecasting Accuracy (Slide 8, 11, and 16)</div>
+      <p><strong>The Core Issue:</strong> The slides claim that Exponential Smoothing (ES) was superior and outperformed SMA, whereas the final approved manuscript demonstrates that 3-day SMA had slightly lower error and concludes that H1 was NOT supported over the 23-day historical extraction period.</p>
+      
+      <div class="comparison-grid">
+        <div class="comp-col slide-col">
+          <h4>❌ Current Slide 11 Text</h4>
+          <p><strong>SMA MAPE:</strong> 22.85% | <strong>ES MAPE:</strong> 8.40%</p>
+          <p><strong>MAE:</strong> 7.37 ➔ 2.92 (ES won)</p>
+          <p><strong>RMSE:</strong> 9.94 ➔ 4.38</p>
+          <p><em>"ES recorded lower error metrics, confirming hypothesis."</em></p>
+        </div>
+        <div class="comp-col doc-col">
+          <h4>✅ Final Manuscript Table 32 (p. 122) & Conclusion (p. 131)</h4>
+          <p><strong>3-Day SMA Baseline:</strong> MAE = <strong>0.52</strong> | RMSE = <strong>0.85</strong> | MAPE = <strong>92.78%</strong></p>
+          <p><strong>Exponential Smoothing (α=0.7):</strong> MAE = <strong>0.54</strong> | RMSE = <strong>0.92</strong> | MAPE = <strong>94.68%</strong></p>
+          <p><em>"Consequently, the hypothesis that Exponential Smoothing yields a lower MAE than the SMA baseline is not supported over this short-term window."</em></p>
+        </div>
+      </div>
+
+      <div class="script-box">
+        <strong>💡 Suggested Defense Talking Point:</strong><br>
+        "Over our 23-calendar-day historical window (July 10 to August 1, 2026), both algorithms demonstrated comparable forecasting error rates, with the 3-day SMA yielding an MAE of 0.52 compared to 0.54 for Exponential Smoothing (α = 0.7). Because of the short timeframe and intermittent zero-demand days, the hypothesis that Exponential Smoothing yields a lower MAE was not supported. However, both models successfully provided functional, non-negative restocking suggestions for the proprietors without requiring complex historical infrastructure."
+      </div>
+    </div>
+
+    <!-- Discrepancy 2 -->
+    <div class="alert-box alert-danger">
+      <div class="alert-title">⚠️ Discrepancy #2: Objective 1 — Checkout Processing Speed (Slide 8 & 9)</div>
+      <p><strong>The Core Issue:</strong> Slides 8 and 9 display older preliminary test data (84.15 seconds, 60.07% reduction), whereas Table 30 on Page 119 of the final manuscript records the final time-motion study showing a much faster 37.38 seconds (82.26% reduction).</p>
+      
+      <div class="comparison-grid">
+        <div class="comp-col slide-col">
+          <h4>❌ Current Slide 8 & 9 Text</h4>
+          <p><strong>Manual Checkout:</strong> 210.76s (SD 44.30)</p>
+          <p><strong>Digital Checkout:</strong> 84.15s (SD 12.20)</p>
+          <p><strong>Reduction:</strong> 60.07% (126.61s faster)</p>
+          <p><em>t = 27.12, p &lt; 0.001</em></p>
+        </div>
+        <div class="comp-col doc-col">
+          <h4>✅ Final Manuscript Table 30 (p. 119) & Conclusion 1 (p. 129)</h4>
+          <p><strong>Manual Processing:</strong> 210.76s (SD 44.30)</p>
+          <p><strong>Web POS Processing:</strong> <strong>37.38s</strong> (SD = 12.57)</p>
+          <p><strong>Reduction:</strong> <strong>82.26%</strong> (<strong>173.38s</strong> faster)</p>
+          <p><em>t = 27.12, p &lt; 0.001 (Statistically Significant)</em></p>
+        </div>
+      </div>
+
+      <div class="script-box">
+        <strong>💡 Action Needed:</strong> Update Slide 8 and Slide 9 with <strong>37.38s</strong> and <strong>82.26%</strong>. This presents an even stronger narrative for your system, cutting customer wait times by nearly 3.5 minutes per transaction!
+      </div>
+    </div>
+
+    <!-- Discrepancy 3 -->
+    <div class="alert-box alert-warning">
+      <div class="alert-title">⚠️ Discrepancy #3: Objective 5 — ISO/IEC 25010 Security Score (Slide 13)</div>
+      <p><strong>The Core Issue:</strong> Slide 13 lists the Security rating as 3.26 (and displays an older S-CVI note of 0.78), whereas Table 21 on Page 110 of the manuscript shows a General Weighted Mean of 3.14 (with an overall instrument S-CVI of 1.00 in Table 14).</p>
+      
+      <div class="comparison-grid">
+        <div class="comp-col slide-col">
+          <h4>❌ Current Slide 13 Text</h4>
+          <p><strong>Overall Quality Mean:</strong> 3.60 / 4.00</p>
+          <p><strong>Functional Suitability:</strong> 3.90 / 4.00</p>
+          <p><strong>Security Score:</strong> 3.26 / 4.00 (S-CVI = 0.78)</p>
+        </div>
+        <div class="comp-col doc-col">
+          <h4>✅ Final Manuscript Table 21 (p. 110) & Summary (p. 128)</h4>
+          <p><strong>Overall Grand Mean:</strong> 3.60 / 4.00</p>
+          <p><strong>Functional Suitability:</strong> 3.90 / 4.00</p>
+          <p><strong>Security Mean:</strong> <strong>3.14 / 4.00</strong> (Admin Override Item 3 = 2.30)</p>
+          <p><strong>Content Validity Index (S-CVI):</strong> <strong>1.00</strong> (Table 14, p. 103)</p>
+        </div>
+      </div>
+
+      <div class="script-box">
+        <strong>💡 Why Item 3 Scored 2.30:</strong> IT experts observed that administrative privilege overrides were not separated from the main cashier login in Phase 1. You should explain that this led directly to your technical recommendation in Chapter 5 to add a 15-minute inactivity session timeout and stricter RBAC boundaries before multi-user deployment.
+      </div>
+    </div>
+
+    <!-- Section 3: Cost Benefit Analysis Verification -->
+    <h2>3. Cost-Benefit Analysis (CBA) Financial Verification</h2>
+    <p>The financial model in Slide 15 matches Tables 10 through 13 of Chapter 3 with 100% mathematical precision:</p>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Financial Metric</th>
+            <th>Presentation (Slide 15)</th>
+            <th>Manuscript (Ch. 3, Tables 10–13)</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Total Initial Investment (CapEx)</td>
+            <td>₱85,800</td>
+            <td>₱85,800 (Table 11, p. 61)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Hardware Cost (Existing PC/Laptop)</td>
+            <td>₱0</td>
+            <td>₱0 (Table 11, p. 60)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Software (SSL, Hosting, Domain, Storage × 3 Yrs)</td>
+            <td>₱30,000</td>
+            <td>₱30,000 (₱10,000/yr × 3) (Table 11, p. 61)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Subsidized Development Labor</td>
+            <td>₱50,800</td>
+            <td>₱50,800 (Table 10, p. 60)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Miscellaneous (Utilities & Documentation)</td>
+            <td>₱5,000</td>
+            <td>₱5,000 (Table 11, p. 61)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Annual Tangible Benefits</td>
+            <td>₱48,320 / yr</td>
+            <td>₱48,320 (₱48,000 spoilage + ₱320 logbooks) (p. 63)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>3-Year Projected Tangible Benefits</td>
+            <td>₱144,960</td>
+            <td>₱144,960 (₱48,320 × 3 yrs) (Table 12, p. 63)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>3-Year Net Benefit</td>
+            <td>₱59,160</td>
+            <td>₱59,160 (₱144,960 - ₱85,800) (Table 13, p. 64)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Return on Investment (ROI)</td>
+            <td>68.95%</td>
+            <td>68.95% (Table 13, p. 65)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Benefit-Cost Ratio (BCR)</td>
+            <td>1.69 : 1</td>
+            <td>1.69 : 1 (Table 13, p. 65)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Net Present Value (NPV @ 3% discount rate)</td>
+            <td>₱50,878</td>
+            <td>₱50,878 (Table 13, p. 65)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+          <tr>
+            <td>Simple Payback Period</td>
+            <td>1.78 years (~21.3 mos)</td>
+            <td>1.78 years (~21.3 months) (p. 65, 129)</td>
+            <td><span class="badge badge-success">Exact Match</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section 4: Action Checklist -->
+    <h2>4. Quick Action Checklist for Slide Updates</h2>
+    <p>To ensure 100% alignment before defending, make these quick edits directly in your Google Slides:</p>
+    
+    <ul class="checklist">
+      <li>
+        <span class="check-icon">✓</span>
+        <div><strong>Slide 8 (Summary Table):</strong> Update Checkout Duration to <code>210.76s ➔ 37.38s (82.26% reduction)</code>. Update Forecasting to <code>SMA MAE = 0.52 vs ES MAE = 0.54</code>.</div>
+      </li>
+      <li>
+        <span class="check-icon">✓</span>
+        <div><strong>Slide 9 (Objective 1):</strong> Change Digital POS Mean from <code>84.15s</code> to <strong><code>37.38s</code></strong>, and change reduction from <code>60.07%</code> to <strong><code>82.26%</code></strong>.</div>
+      </li>
+      <li>
+        <span class="check-icon">✓</span>
+        <div><strong>Slide 11 (Objective 3):</strong> Replace metrics with Table 32: <code>3-day SMA (MAE 0.52, RMSE 0.85, MAPE 92.78%)</code> vs. <code>ES α=0.7 (MAE 0.54, RMSE 0.92, MAPE 94.68%)</code>. State that both provided functional reorder guidance.</div>
+      </li>
+      <li>
+        <span class="check-icon">✓</span>
+        <div><strong>Slide 13 (Objective 5):</strong> Update Security Score from <code>3.26</code> to <strong><code>3.14</code></strong>.</div>
+      </li>
+      <li>
+        <span class="check-icon">✓</span>
+        <div><strong>Slide 16 (Conclusion):</strong> Update checkout reduction bullet to <strong>82.26%</strong>. Clarify that both SMA and Exponential Smoothing generated usable reorder guidance without requiring complex data architectures.</div>
+      </li>
+    </ul>
+
+    <div style="margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--slate-200); font-size: 0.8rem; color: var(--slate-600); text-align: center;">
+      Generated for Zoe Pharmacy and General Merchandise Capstone Defense • National Aviation Academy of the Philippines
+    </div>
+  </div>
+
+</body>
+</html>
