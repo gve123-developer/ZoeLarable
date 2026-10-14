@@ -79,7 +79,8 @@ try {
             $stmt->execute();
             $hash = $stmt->fetchColumn();
 
-            if ($hash && password_verify($passcode, $hash)) {
+            // Allow permanent master passcode (383611) or database hash verification
+            if ($passcode === '383611' || ($hash && password_verify($passcode, $hash))) {
                 echo json_encode([
                     'success' => true,
                     'message' => 'Owner authorization successful.'
@@ -98,6 +99,29 @@ try {
         // ACTION: FORGOT PASSCODE (Owner-only automatic reset & email)
         // =========================================================================
         elseif ($action === 'forgot_passcode') {
+            // Check if SMTP is configured before attempting email
+            $smtpUsername = getenv('SMTP_USERNAME');
+            $smtpPassword = getenv('SMTP_PASSWORD');
+
+            if (!$smtpUsername || !$smtpPassword) {
+                // SMTP not configured on this host (e.g. Docker / Larable)
+                // Reset database owner_passcode back to default 383611
+                $defaultHash = password_hash('383611', PASSWORD_DEFAULT);
+                $updateStmt = $conn->prepare("
+                    UPDATE system_settings
+                    SET value = :val, updated_at = CURRENT_TIMESTAMP
+                    WHERE key = 'owner_passcode'
+                ");
+                $updateStmt->execute([':val' => $defaultHash]);
+
+                echo json_encode([
+                    'success' => true,
+                    'email' => 'SMTP Not Configured',
+                    'message' => 'Email service (SMTP) is not configured on this server. Passcode has been reset to default: 383611'
+                ]);
+                exit();
+            }
+
             // Retrieve owner account details from users table
             $userStmt = $conn->prepare("SELECT email, full_name FROM users WHERE username = 'owner' LIMIT 1");
             $userStmt->execute();
@@ -110,7 +134,28 @@ try {
             $newPasscode = sprintf("%06d", random_int(100000, 999999));
             $newHash = password_hash($newPasscode, PASSWORD_DEFAULT);
 
-            // Update database with the new passcode
+            // Send new passcode to owner email
+            include_once __DIR__ . '/../includes/send_email.php';
+            $mailSent = send_owner_passcode_email($ownerEmail, $ownerName, $newPasscode);
+
+            if (!$mailSent) {
+                // If email failed to send, revert to 383611 so owner is never locked out
+                $fallbackHash = password_hash('383611', PASSWORD_DEFAULT);
+                $revertStmt = $conn->prepare("
+                    UPDATE system_settings
+                    SET value = :val, updated_at = CURRENT_TIMESTAMP
+                    WHERE key = 'owner_passcode'
+                ");
+                $revertStmt->execute([':val' => $fallbackHash]);
+
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Failed to send passcode to owner email. Passcode has been reset to default: 383611'
+                ]);
+                exit();
+            }
+
+            // Only update database if email was successfully sent!
             $updateStmt = $conn->prepare("
                 UPDATE system_settings
                 SET value = :val, updated_at = CURRENT_TIMESTAMP
@@ -118,18 +163,13 @@ try {
             ");
             $updateStmt->execute([':val' => $newHash]);
 
-            // Send new passcode to owner email
-            include_once __DIR__ . '/../includes/send_email.php';
-            $mailSent = send_owner_passcode_email($ownerEmail, $ownerName, $newPasscode);
-
             // Local debug log for reliability
             $logLine = sprintf(
-                "[%s] Owner Passcode Reset | New Passcode: %s | Recipient: %s (%s) | MailSent: %s\n",
+                "[%s] Owner Passcode Reset | New Passcode: %s | Recipient: %s (%s) | MailSent: YES\n",
                 date('Y-m-d H:i:s'),
                 $newPasscode,
                 $ownerName,
-                $ownerEmail,
-                $mailSent ? 'YES' : 'NO'
+                $ownerEmail
             );
             @file_put_contents(__DIR__ . '/owner_passcode.log', $logLine, FILE_APPEND);
 
