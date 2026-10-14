@@ -193,7 +193,7 @@ export function getProductImage(product: { sku: string; name: string; category?:
   // 3. Fallback Dynamic Packshot
   const fallbackUrl = generateVariantPackshot(name, sku, categoryTag);
 
-  // 4. Check Direct Registry (567+ Authentic Scraped & Curated Real Packshots)
+  // 4. Check Direct Registry (All 1,842 Authentic Scraped & Curated Real Packshots)
   const registry = directRegistry as Record<string, string>;
   const directRealImage = registry[sku];
 
