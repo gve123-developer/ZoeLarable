@@ -1225,13 +1225,13 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         <ErrorBoundary fallbackTitle="Edit Dialog Error">
           <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
             <DialogContent
-              className="max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto p-6 bg-white rounded-2xl shadow-2xl"
+              className="max-w-6xl w-[96vw] max-h-[96vh] overflow-y-auto p-4 sm:p-5 bg-white rounded-2xl shadow-2xl"
               style={{ maxWidth: '1120px', width: '96vw' }}
             >
-              <DialogHeader className="pb-3 border-b border-gray-100 flex flex-row items-center justify-between">
+              <DialogHeader className="pb-2 border-b border-gray-100 flex flex-row items-center justify-between">
                 <div>
-                  <DialogTitle className="text-xl font-black text-gray-900 flex items-center gap-2">
-                    <Package className="size-5 text-blue-600" />
+                  <DialogTitle className="text-lg font-black text-gray-900 flex items-center gap-2">
+                    <Package className="size-4.5 text-blue-600" />
                     Edit Product & Batches
                   </DialogTitle>
                   <DialogDescription className="text-xs text-gray-500 mt-0.5">
@@ -1248,57 +1248,57 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                 </div>
               </DialogHeader>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 py-4 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 py-2.5 items-start">
                 {/* LEFT COLUMN: Product Details & Old Batch (6 cols) */}
-                <div className="lg:col-span-6 space-y-4">
+                <div className="lg:col-span-6 space-y-2.5">
                   {/* Product Info Card */}
-                  <div className="p-4 bg-gray-50/80 border border-gray-200 rounded-xl space-y-3 shadow-2xs">
+                  <div className="p-3 bg-gray-50/80 border border-gray-200 rounded-xl space-y-2 shadow-2xs">
                     <div className="text-xs font-black text-gray-800 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-gray-200">
                       <Package className="size-3.5 text-gray-600" /> Product Information
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="edit-name" className="text-xs font-bold text-gray-700">Product Name *</Label>
-                      <Input id="edit-name" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-white font-medium" />
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-name" className="text-[11px] font-bold text-gray-700">Product Name *</Label>
+                      <Input id="edit-name" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="h-8 text-xs bg-white font-medium" />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="edit-sku" className="text-xs font-bold text-gray-700">SKU Code *</Label>
-                        <Input id="edit-sku" value={formData.sku || ''} onChange={(e) => setFormData({ ...formData, sku: e.target.value })} className="bg-white font-mono" />
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-sku" className="text-[11px] font-bold text-gray-700">SKU Code *</Label>
+                        <Input id="edit-sku" value={formData.sku || ''} onChange={(e) => setFormData({ ...formData, sku: e.target.value })} className="h-8 text-xs bg-white font-mono" />
                       </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="edit-category" className="text-xs font-bold text-gray-700">Category *</Label>
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-category" className="text-[11px] font-bold text-gray-700">Category *</Label>
                         <Select value={formData.category || ''} onValueChange={(value) => setFormData({ ...formData, category: value })}>
-                          <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {categories.map(cat => (<SelectItem key={cat} value={cat}>{cat}</SelectItem>))}
                           </SelectContent>
                         </Select>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="edit-price" className="text-xs font-bold text-gray-700">Selling Price (₱) *</Label>
-                        <Input id="edit-price" type="number" step="0.01" value={formData.price || ''} onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })} className="bg-white font-bold text-green-700" />
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-price" className="text-[11px] font-bold text-gray-700">Selling Price (₱) *</Label>
+                        <Input id="edit-price" type="number" step="0.01" value={formData.price || ''} onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })} className="h-8 text-xs bg-white font-bold text-green-700" />
                       </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="edit-cost" className="text-xs font-bold text-gray-700">Cost Price (₱) *</Label>
-                        <Input id="edit-cost" type="number" step="0.01" value={formData.cost || ''} onChange={(e) => setFormData({ ...formData, cost: Number(e.target.value) })} className="bg-white" />
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-cost" className="text-[11px] font-bold text-gray-700">Cost Price (₱) *</Label>
+                        <Input id="edit-cost" type="number" step="0.01" value={formData.cost || ''} onChange={(e) => setFormData({ ...formData, cost: Number(e.target.value) })} className="h-8 text-xs bg-white" />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="edit-reorderLevel" className="text-xs font-bold text-gray-700">Reorder Level *</Label>
-                        <Input id="edit-reorderLevel" type="number" value={formData.reorderLevel || ''} onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })} className="bg-white" />
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-reorderLevel" className="text-[11px] font-bold text-gray-700">Reorder Level *</Label>
+                        <Input id="edit-reorderLevel" type="number" value={formData.reorderLevel || ''} onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })} className="h-8 text-xs bg-white" />
                       </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="edit-description" className="text-xs font-bold text-gray-700">Description</Label>
-                        <Input id="edit-description" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="bg-white" placeholder="Optional details..." />
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-description" className="text-[11px] font-bold text-gray-700">Description</Label>
+                        <Input id="edit-description" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="h-8 text-xs bg-white" placeholder="Optional details..." />
                       </div>
                     </div>
                   </div>
 
                   {/* Old Batch Card (Protected / Non-Editable) */}
-                  <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3 shadow-2xs">
+                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2 shadow-2xs">
                     <div className="flex items-center justify-between pb-1 border-b border-amber-200">
                       <div className="text-xs font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
                         <Boxes className="size-3.5 text-amber-700" /> Old Batch (Active Stock in POS)
@@ -1310,43 +1310,81 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                         <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">Primary Stock</span>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-bold text-gray-700">Old Batch Quantity</Label>
-                        <div className="h-9 px-3 py-1.5 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
-                          <span className="font-bold text-gray-900 text-sm">{formData.quantity ?? 0} pcs</span>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-bold text-gray-700">Old Batch Quantity</Label>
+                        <div className="h-8 px-2.5 py-1 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
+                          <span className="font-bold text-gray-900 text-xs">{formData.quantity ?? 0} pcs</span>
                           <span className="text-[9px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Read-Only</span>
                         </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-bold text-gray-700">Old Batch Expiry Date</Label>
-                        <div className="h-9 px-3 py-1.5 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-bold text-gray-700">Old Batch Expiry Date</Label>
+                        <div className="h-8 px-2.5 py-1 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
                           <span className="font-bold text-gray-800 text-xs">{formData.expiryDate || 'N/A'}</span>
                           <span className="text-[9px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Read-Only</span>
                         </div>
                       </div>
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs font-bold text-gray-700">Old Batch Number</Label>
+                        <Label className="text-[11px] font-bold text-gray-700">Old Batch Number</Label>
                         <span className="text-[10px] text-amber-800 font-medium">Active in POS system</span>
                       </div>
-                      <div className="h-9 px-3 py-1.5 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
+                      <div className="h-8 px-2.5 py-1 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
                         <span className="font-mono font-bold text-blue-900 text-xs">{formData.batchNumber || 'N/A'}</span>
                         <span className="text-[9px] font-bold uppercase text-gray-500 bg-white/80 border border-gray-200 px-1.5 py-0.5 rounded">Fixed</span>
                       </div>
                     </div>
-                    <div className="text-[10px] text-amber-900/90 bg-amber-100/60 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5 leading-tight">
+                    <div className="text-[10px] text-amber-900/90 bg-amber-100/60 p-1.5 rounded-lg border border-amber-200 flex items-center gap-1.5 leading-tight">
                       <Lock className="size-3 text-amber-700 shrink-0" />
-                      <span>Protektado ang Old Batch upang hindi maapektuhan o mabago ang kasalukuyang binibenta sa POS. Magdagdag ng bagong stock sa kanan (New Batch Queue).</span>
+                      <span>Protektado ang Old Batch sa POS. Magdagdag ng bagong stock sa kanan (New Batch Queue).</span>
+                    </div>
+                  </div>
+
+                  {/* Summary Totals & Action Buttons (Moved up into Left Column space to eliminate scrolling) */}
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl space-y-2.5 shadow-2xs">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+                      <div className="flex flex-wrap items-center gap-1.5 font-bold">
+                        <span className="text-amber-800 bg-amber-100 px-2 py-0.5 rounded text-[11px]">
+                          Old Batch: {formData.quantity || 0}
+                        </span>
+                        <span className="text-gray-400 font-bold">+</span>
+                        <span className="text-blue-800 bg-blue-100 px-2 py-0.5 rounded text-[11px]">
+                          New Batch Queue: {formData.newStockQuantity || 0}
+                        </span>
+                        <span className="text-gray-400 font-bold">=</span>
+                        <span className="text-gray-900 bg-gray-100 border border-gray-200 font-black px-2 py-0.5 rounded text-[11px]">
+                          Total: {Number(formData.quantity || 0) + Number(formData.newStockQuantity || 0)} units
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 pt-1.5 border-t border-gray-100">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setIsEditDialogOpen(false); setFormData({}); setEditingProduct(null); }}
+                        className="h-8 px-4 text-xs font-semibold cursor-pointer"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setShowSaveConfirm(true)}
+                        className="h-8 px-5 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs cursor-pointer shadow-xs"
+                      >
+                        Save Changes
+                      </Button>
                     </div>
                   </div>
                 </div>
 
                 {/* RIGHT COLUMN (NASA GILID): New Batch Queue & Restocking (6 cols) */}
-                <div className="lg:col-span-6 space-y-4">
-                  <div className="p-4 bg-blue-50/80 border-2 border-blue-200 rounded-xl space-y-4 shadow-xs">
-                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-blue-200">
+                <div className="lg:col-span-6 space-y-3">
+                  <div className="p-3.5 bg-blue-50/80 border-2 border-blue-200 rounded-xl space-y-3 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-blue-200">
                       <div className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
                         <Layers className="size-4 text-blue-600" /> New Batch Queue & Restocking
                       </div>
@@ -1357,7 +1395,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
 
                     {/* Queued batches list */}
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] font-black uppercase text-blue-900 tracking-wider">
                           Waiting in Queue ({Array.isArray(formData.newBatchQueue) ? formData.newBatchQueue.length : 0} batches)
                         </span>
@@ -1365,8 +1403,8 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                       </div>
 
                       {Array.isArray(formData.newBatchQueue) && formData.newBatchQueue.length > 0 ? (
-                        <div className="bg-white rounded-xl border border-blue-200 overflow-hidden divide-y divide-gray-100 max-h-[170px] overflow-y-auto shadow-2xs">
-                          <div className="bg-blue-100/70 px-3 py-1.5 text-[10px] font-black uppercase text-blue-900 grid grid-cols-12 gap-1.5 sticky top-0 z-10">
+                        <div className="bg-white rounded-xl border border-blue-200 overflow-hidden divide-y divide-gray-100 max-h-[110px] overflow-y-auto shadow-2xs">
+                          <div className="bg-blue-100/70 px-3 py-1 text-[10px] font-black uppercase text-blue-900 grid grid-cols-12 gap-1.5 sticky top-0 z-10">
                             <span className="col-span-1">#</span>
                             <span className="col-span-4">Batch Number</span>
                             <span className="col-span-2 text-center">Qty</span>
@@ -1375,7 +1413,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                             <span className="col-span-1 text-right">Del</span>
                           </div>
                           {formData.newBatchQueue.map((b, idx) => (
-                            <div key={idx} className="px-3 py-2 text-xs grid grid-cols-12 gap-1.5 items-center hover:bg-blue-50/40">
+                            <div key={idx} className="px-3 py-1.5 text-xs grid grid-cols-12 gap-1.5 items-center hover:bg-blue-50/40">
                               <span className="col-span-1 font-bold text-gray-400">#{idx + 1}</span>
                               <span className="col-span-4 font-mono font-bold text-blue-900 truncate" title={b.batchNumber}>{b.batchNumber}</span>
                               <span className="col-span-2 text-center font-black text-gray-800">{b.quantity} pcs</span>
@@ -1407,14 +1445,14 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                           ))}
                         </div>
                       ) : (
-                        <div className="p-3 text-center text-xs text-gray-500 bg-white rounded-xl border border-dashed border-blue-200">
+                        <div className="p-2.5 text-center text-xs text-gray-500 bg-white rounded-xl border border-dashed border-blue-200">
                           No incoming batches in queue. Fill out the form below to add.
                         </div>
                       )}
                     </div>
 
                     {/* Add / Restock Batch Form */}
-                    <div className="p-3.5 bg-white border border-blue-200 rounded-xl space-y-3 shadow-2xs">
+                    <div className="p-3 bg-white border border-blue-200 rounded-xl space-y-2.5 shadow-2xs">
                       <div className="flex items-center justify-between pb-1 border-b border-gray-100">
                         <span className="text-[11px] font-black text-blue-800 uppercase tracking-wider flex items-center gap-1">
                           <Plus className="size-3.5 text-blue-600" /> Add Incoming Restock Batch
@@ -1423,7 +1461,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                       </div>
 
                       {/* Row 1: Arrival Date + Supplier */}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2.5">
                         <div className="space-y-1">
                           <Label htmlFor="incoming-arrival" className="text-[10px] font-bold text-gray-700 flex items-center justify-between">
                             <span>Arrival Date (Dumating) *</span>
@@ -1458,7 +1496,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                       </div>
 
                       {/* Row 2: Incoming Qty + Expiry Date */}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2.5">
                         <div className="space-y-1">
                           <Label htmlFor="incoming-qty" className="text-[10px] font-bold text-gray-700">Incoming Quantity *</Label>
                           <Input
@@ -1522,7 +1560,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                       </div>
 
                       {/* Action Button: Queue Batch */}
-                      <div className="pt-1">
+                      <div className="pt-0.5">
                         <Button
                           type="button"
                           size="sm"
@@ -1537,30 +1575,6 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                   </div>
                 </div>
               </div>
-
-              <DialogFooter className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="text-xs text-gray-600 flex items-center gap-2">
-                  <span className="font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
-                    Old Batch: {formData.quantity || 0}
-                  </span>
-                  <span>+</span>
-                  <span className="font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">
-                    New Batch Queue: {formData.newStockQuantity || 0}
-                  </span>
-                  <span>=</span>
-                  <span className="font-black text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
-                    Total: {Number(formData.quantity || 0) + Number(formData.newStockQuantity || 0)} units
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" onClick={() => { setIsEditDialogOpen(false); setFormData({}); setEditingProduct(null); }}>
-                    Cancel
-                  </Button>
-                  <Button onClick={() => setShowSaveConfirm(true)} className="bg-blue-700 hover:bg-blue-800 text-white font-bold">
-                    Save Changes
-                  </Button>
-                </div>
-              </DialogFooter>
             </DialogContent>
           </Dialog>
         </ErrorBoundary>
