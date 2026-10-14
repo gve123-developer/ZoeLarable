@@ -82,10 +82,12 @@ function align_product_batches_fefo(&$qty, &$expiry, &$batchNumber, &$queue, $su
     }
 
     if (empty($allBatches)) {
+        $changed = ($qty !== 0) || ($expiry !== null) || (!empty($batchNumber)) || (!empty($queue));
         $qty = 0;
         $expiry = null;
+        $batchNumber = null;
         $queue = [];
-        return false;
+        return $changed;
     }
 
     // Sort strictly by FEFO: Earliest expiry date first
@@ -162,12 +164,19 @@ if ($method === 'GET') {
             $createdDateCode = !empty($row['created_at']) ? date('Ymd', strtotime($row['created_at'])) : date('Ymd');
             $createdDateFull = !empty($row['created_at']) ? date('Y-m-d', strtotime($row['created_at'])) : date('Y-m-d');
 
-            $batchNumber = $row['batch_number'] ?? '';
-            if (empty($batchNumber) || strpos($batchNumber, '20261014-') === 0) {
+            $batchNumber = $row['batch_number'] ?? null;
+            $hasStock = ((int)$row['quantity'] > 0) || ((int)($row['new_stock_quantity'] ?? 0) > 0);
+            if ($hasStock && (empty($batchNumber) || strpos($batchNumber, '20261014-') === 0)) {
                 $batchNumber = $createdDateCode . '-' . $supplier;
                 try {
                     $conn->prepare("UPDATE products SET batch_number = :bn WHERE id = :id")
                          ->execute([':bn' => $batchNumber, ':id' => $row['id']]);
+                } catch (Throwable $e) {}
+            } elseif (!$hasStock && !empty($batchNumber)) {
+                $batchNumber = null;
+                try {
+                    $conn->prepare("UPDATE products SET batch_number = NULL, expiry_date = NULL WHERE id = :id")
+                         ->execute([':id' => $row['id']]);
                 } catch (Throwable $e) {}
             }
 

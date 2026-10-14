@@ -448,6 +448,13 @@ try {
             $newStockExpiry = !empty($expList) ? min($expList) : null;
 
             error_log("[AUTO-ROTATE] Product ID $pid promoted from next queued batch.");
+        } elseif ($oldQty <= 0 && $newQty <= 0) {
+            $oldQty = 0;
+            $expiryDate = null;
+            $batchNumber = null;
+            $newQty = 0;
+            $newStockExpiry = null;
+            $newBatchQueue = [];
         } elseif ($newQty <= 0) {
             $newQty = 0;
             $newStockExpiry = null;

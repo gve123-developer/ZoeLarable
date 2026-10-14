@@ -100,7 +100,7 @@ export function alignBatchesFEFO(
     return {
       quantity: 0,
       expiryDate: undefined,
-      batchNumber: oldBatchNumber || formatBatchCode(todayStr, defaultSupplier),
+      batchNumber: undefined,
       newBatchQueue: [] as BatchItem[],
       newStockQuantity: 0,
       newStockExpiry: undefined,
@@ -310,9 +310,11 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
             }]
           : []);
 
-    const oldBatchNumber = (p.batchNumber && !p.batchNumber.startsWith('20261014-'))
-      ? p.batchNumber
-      : formatBatchCode(initialArrDate, sup);
+    const oldBatchNumber = Number(p.quantity) > 0
+      ? ((p.batchNumber && !p.batchNumber.startsWith('20261014-'))
+          ? p.batchNumber
+          : formatBatchCode(initialArrDate, sup))
+      : undefined;
 
     // Apply strict FEFO alignment: Earliest expiration batch ALWAYS becomes Old Batch
     const aligned = alignBatchesFEFO(
@@ -1066,15 +1068,21 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                             </div>
                           </TableCell>
                           <TableCell className="px-6 py-4 border-r border-gray-200 text-center">
-                            <div className="flex flex-col items-center justify-center">
-                              <span className={`text-md font-black ${isDateExpired(product.expiryDate) && Number(product.quantity) > 0 ? 'text-red-600' : Number(product.quantity) === 0 ? 'text-red-600' : 'text-gray-900'}`}>{Number(product.quantity) === 0 ? '-' : product.quantity}</span>
-                              <span className={`text-[9px] font-bold uppercase ${isDateExpired(product.expiryDate) && Number(product.quantity) > 0 ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {product.expiryDate || 'N/A'}</span>
-                              {product.batchNumber && (
-                                <span className="text-[9px] font-mono font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded mt-1 border border-gray-200 shadow-2xs">
-                                  {product.batchNumber}
-                                </span>
-                              )}
-                            </div>
+                            {Number(product.quantity) <= 0 ? (
+                              <div className="flex flex-col items-center justify-center">
+                                <span className="text-md font-black text-red-600">-</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center justify-center">
+                                <span className={`text-md font-black ${isDateExpired(product.expiryDate) ? 'text-red-600' : 'text-gray-900'}`}>{product.quantity}</span>
+                                <span className={`text-[9px] font-bold uppercase ${isDateExpired(product.expiryDate) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {product.expiryDate || 'N/A'}</span>
+                                {product.batchNumber && (
+                                  <span className="text-[9px] font-mono font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded mt-1 border border-gray-200 shadow-2xs">
+                                    {product.batchNumber}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="px-6 py-4 border-r border-gray-200 text-center">
                             {(() => {
