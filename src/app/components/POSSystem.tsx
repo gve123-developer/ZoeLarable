@@ -823,7 +823,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                             className="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-200"
                             loading="lazy"
                             onError={(e) => {
-                              (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200"><rect width="200" height="200" fill="%23ffffff"/><g transform="translate(30, 25)"><rect x="15" y="10" width="110" height="130" rx="8" fill="%23f8fafc" stroke="%23cbd5e1" stroke-width="2"/><rect x="15" y="10" width="110" height="35" rx="8" fill="%23047857"/><circle cx="70" cy="85" r="14" fill="%23ecfdf5" stroke="%23a7f3d0"/><path d="M70 78 v14 M63 85 h14" stroke="%23047857" stroke-width="2.5" stroke-linecap="round"/></g></svg>';
+                              (e.target as HTMLImageElement).src = imgInfo.fallbackUrl;
                             }}
                           />
                           {isRxProduct(product) && (
