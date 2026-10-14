@@ -31,6 +31,8 @@ try {
     $conn->exec("ALTER TABLE products ADD COLUMN IF NOT EXISTS new_batch_queue TEXT DEFAULT '[]'");
     $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS batch_number VARCHAR(100)");
     $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS new_batch_queue TEXT DEFAULT '[]'");
+    $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS new_stock_quantity INTEGER DEFAULT 0");
+    $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS new_stock_expiry DATE");
 } catch (Throwable $e) {}
 
 $rawBody = file_get_contents('php://input');
@@ -218,15 +220,96 @@ if (is_array($deletedProductsData) && !empty($deletedProductsData)) {
     }
 }
 
-// 3. STATS VERIFICATION
+// 3. SYNC TRANSACTIONS
+if (empty($transactionsData)) {
+    $ctx = stream_context_create([
+        'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+        'http' => ['timeout' => 30]
+    ]);
+    $sysTxRaw = @file_get_contents('https://zoepharmacyandgeneralmerchandise.systems/api/transactions.php', false, $ctx);
+    if ($sysTxRaw) {
+        $transactionsData = json_decode($sysTxRaw, true);
+    }
+}
+
+if (is_array($transactionsData) && !empty($transactionsData)) {
+    $results['transactions_synced'] = 0;
+    try {
+        $conn->beginTransaction();
+        $checkTxStmt = $conn->prepare("SELECT id FROM transactions WHERE id = :id LIMIT 1");
+        $insertTxStmt = $conn->prepare("
+            INSERT INTO transactions (
+                id, cashier_name, total_amount, payment_method,
+                amount_received, change_amount, status, created_at, transaction_date
+            ) VALUES (
+                :id, :cashier, :total, :payment_method,
+                :amount_received, :change, :status, :created_at, :transaction_date
+            )
+        ");
+        $insertItemStmt = $conn->prepare("
+            INSERT INTO transaction_items (
+                id, transaction_id, product_id, product_name, quantity, price, cost, status
+            ) VALUES (
+                :id, :transaction_id, :product_id, :name, :quantity, :price, :cost, :status
+            )
+        ");
+
+        foreach ($transactionsData as $t) {
+            $txId = (int)($t['id'] ?? 0);
+            if ($txId <= 0) continue;
+
+            $checkTxStmt->execute([':id' => $txId]);
+            if ($checkTxStmt->fetchColumn()) continue; // Already exists
+
+            $dateVal = $t['date'] ?? $t['created_at'] ?? date('Y-m-d H:i:s');
+            $insertTxStmt->execute([
+                ':id' => $txId,
+                ':cashier' => $t['cashier'] ?? 'Admin',
+                ':total' => (float)($t['total'] ?? 0),
+                ':payment_method' => $t['paymentMethod'] ?? 'cash',
+                ':amount_received' => (float)($t['amountReceived'] ?? 0),
+                ':change' => (float)($t['change'] ?? 0),
+                ':status' => $t['status'] ?? 'completed',
+                ':created_at' => $dateVal,
+                ':transaction_date' => $dateVal
+            ]);
+
+            if (!empty($t['items']) && is_array($t['items'])) {
+                foreach ($t['items'] as $it) {
+                    $insertItemStmt->execute([
+                        ':id' => (int)($it['itemId'] ?? 0) ?: null,
+                        ':transaction_id' => $txId,
+                        ':product_id' => (int)($it['productId'] ?? 0) ?: null,
+                        ':name' => $it['name'] ?? '',
+                        ':quantity' => (int)($it['quantity'] ?? 1),
+                        ':price' => (float)($it['price'] ?? 0),
+                        ':cost' => (float)($it['cost'] ?? 0),
+                        ':status' => $it['status'] ?? 'completed'
+                    ]);
+                }
+            }
+            $results['transactions_synced']++;
+        }
+        $conn->commit();
+    } catch (Throwable $e) {
+        $conn->rollBack();
+        $results['errors'][] = 'Transactions sync error: ' . $e->getMessage();
+    }
+}
+
+// 4. STATS VERIFICATION
 try {
     $countTotal = $conn->query("SELECT count(*) FROM products")->fetchColumn();
     $countWithExp = $conn->query("SELECT count(*) FROM products WHERE expiry_date IS NOT NULL AND expiry_date != ''")->fetchColumn();
     $countNoExp = $conn->query("SELECT count(*) FROM products WHERE expiry_date IS NULL OR expiry_date = ''")->fetchColumn();
+    $countDel = $conn->query("SELECT count(*) FROM deleted_products")->fetchColumn();
+    $countTx = $conn->query("SELECT count(*) FROM transactions")->fetchColumn();
     $results['current_db_stats'] = [
         'total_products' => (int)$countTotal,
         'products_with_expiry' => (int)$countWithExp,
-        'products_without_expiry' => (int)$countNoExp
+        'products_without_expiry' => (int)$countNoExp,
+        'deleted_products' => (int)$countDel,
+        'transactions' => (int)$countTx
     ];
 } catch (Throwable $e) {}
 
