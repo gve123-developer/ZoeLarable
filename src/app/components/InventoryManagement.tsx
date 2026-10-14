@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/app/components/ui/select';
 import { Badge } from '@/app/components/ui/badge';
 import { toast } from 'sonner';
-import { Plus, Edit, Trash2, Search, Package, ChevronLeft, ChevronRight, Layers, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ArrowDownAZ, RotateCcw, Boxes } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, Package, ChevronLeft, ChevronRight, Layers, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ArrowDownAZ, RotateCcw, Boxes, Lock } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1289,51 +1289,48 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                     </div>
                   </div>
 
-                  {/* Old Batch Card */}
+                  {/* Old Batch Card (Protected / Non-Editable) */}
                   <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3 shadow-2xs">
                     <div className="flex items-center justify-between pb-1 border-b border-amber-200">
                       <div className="text-xs font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
                         <Boxes className="size-3.5 text-amber-700" /> Old Batch (Active Stock in POS)
                       </div>
-                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">Primary Stock</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded shadow-2xs">
+                          <Lock className="size-3 text-amber-700" /> Locked & Active
+                        </span>
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">Primary Stock</span>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <Label htmlFor="edit-quantity" className="text-xs font-bold text-gray-700">Old Batch Quantity *</Label>
-                        <Input id="edit-quantity" type="number" value={formData.quantity ?? ''} onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })} className="bg-white font-bold" />
+                        <Label className="text-xs font-bold text-gray-700">Old Batch Quantity</Label>
+                        <div className="h-9 px-3 py-1.5 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
+                          <span className="font-bold text-gray-900 text-sm">{formData.quantity ?? 0} pcs</span>
+                          <span className="text-[9px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Read-Only</span>
+                        </div>
                       </div>
                       <div className="space-y-1.5">
-                        <Label htmlFor="edit-expiryDate" className="text-xs font-bold text-gray-700">Old Batch Expiry Date</Label>
-                        <Input id="edit-expiryDate" type="date" value={formData.expiryDate || ''} onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })} className="bg-white" />
+                        <Label className="text-xs font-bold text-gray-700">Old Batch Expiry Date</Label>
+                        <div className="h-9 px-3 py-1.5 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
+                          <span className="font-bold text-gray-800 text-xs">{formData.expiryDate || 'N/A'}</span>
+                          <span className="text-[9px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Read-Only</span>
+                        </div>
                       </div>
                     </div>
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <Label htmlFor="edit-batchNumber" className="text-xs font-bold text-gray-700">Old Batch Number (Format: YYYYMMDD-SUPPLIER)</Label>
-                        <span className="text-[10px] text-gray-500 font-medium">Based on arrival date</span>
+                        <Label className="text-xs font-bold text-gray-700">Old Batch Number</Label>
+                        <span className="text-[10px] text-amber-800 font-medium">Active in POS system</span>
                       </div>
-                      <div className="flex gap-2">
-                        <Input
-                          id="edit-batchNumber"
-                          value={formData.batchNumber || ''}
-                          placeholder={formatBatchCode(undefined, formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')}
-                          onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
-                          className="font-mono bg-white font-bold text-blue-900"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const sup = formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH';
-                            const datePart = editingProduct?.createdAt ? editingProduct.createdAt.slice(0, 10) : new Date().toISOString().split('T')[0];
-                            setFormData({ ...formData, batchNumber: formatBatchCode(datePart, sup) });
-                          }}
-                          className="text-xs shrink-0 bg-white"
-                        >
-                          Auto-Format
-                        </Button>
+                      <div className="h-9 px-3 py-1.5 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
+                        <span className="font-mono font-bold text-blue-900 text-xs">{formData.batchNumber || 'N/A'}</span>
+                        <span className="text-[9px] font-bold uppercase text-gray-500 bg-white/80 border border-gray-200 px-1.5 py-0.5 rounded">Fixed</span>
                       </div>
+                    </div>
+                    <div className="text-[10px] text-amber-900/90 bg-amber-100/60 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5 leading-tight">
+                      <Lock className="size-3 text-amber-700 shrink-0" />
+                      <span>Protektado ang Old Batch upang hindi maapektuhan o mabago ang kasalukuyang binibenta sa POS. Magdagdag ng bagong stock sa kanan (New Batch Queue).</span>
                     </div>
                   </div>
                 </div>
