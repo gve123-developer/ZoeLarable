@@ -670,259 +670,273 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
 
   return (
     <ErrorBoundary fallbackTitle="POS System Module Error">
-      <div className="space-y-4">
+      <div className="space-y-4 h-full">
         {/* Layout Grid: Catalog Left (70%) + Current Order Right (30%) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch lg:h-[calc(100vh-90px)] min-h-[580px]">
           {/* CATALOG SECTION */}
-          <div className="lg:col-span-8 xl:col-span-8 2xl:col-span-9 space-y-3.5">
+          <div className="lg:col-span-8 xl:col-span-8 2xl:col-span-9 flex flex-col h-full min-h-0">
             <ErrorBoundary fallbackTitle="Product Catalog Error">
-              <Card className="border border-gray-200/90 shadow-2xs rounded-2xl bg-white overflow-hidden p-4 space-y-3.5">
-                {/* 1. Top Search & Sort Row */}
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 size-4 text-gray-400" />
-                    <Input
-                      placeholder="Search product name, brand, SKU..."
-                      value={searchQuery}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          const q = searchQuery.trim().toLowerCase();
-                          if (!q) return;
-                          const exactSku = products.find(p => p.sku.toLowerCase() === q);
-                          if (exactSku) {
-                            addToCart(exactSku);
-                            setSearchQuery('');
-                            return;
+              <Card className="border border-gray-200/90 shadow-2xs rounded-2xl bg-white overflow-hidden p-4 flex flex-col h-full min-h-0">
+                {/* 1. Non-scrolling Top Filter Controls */}
+                <div className="shrink-0 space-y-3 pb-3 border-b border-gray-100">
+                  {/* Top Search & Sort Row */}
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 size-4 text-gray-400" />
+                      <Input
+                        placeholder="Search product name, brand, SKU..."
+                        value={searchQuery}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const q = searchQuery.trim().toLowerCase();
+                            if (!q) return;
+                            const exactSku = products.find(p => p.sku.toLowerCase() === q);
+                            if (exactSku) {
+                              addToCart(exactSku);
+                              setSearchQuery('');
+                              return;
+                            }
+                            if (filteredProducts.length === 1) {
+                              addToCart(filteredProducts[0]);
+                              setSearchQuery('');
+                            }
                           }
-                          if (filteredProducts.length === 1) {
-                            addToCart(filteredProducts[0]);
-                            setSearchQuery('');
-                          }
-                        }
-                      }}
-                      className="pl-10 pr-20 h-11 text-sm bg-gray-50/60 border-gray-200 rounded-xl focus-visible:ring-emerald-600"
-                    />
-                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
-                      {/* Barcode scanner icon */}
-                      <span className="p-1.5 text-gray-400 hover:text-gray-600 cursor-pointer" title="Barcode Scanner Ready">
-                        <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 5v14M8 5v14M12 5v14M17 5v14M21 5v14M5 5v14M14 5v14M19 5v14" />
-                        </svg>
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={`size-8 rounded-full ${isListening ? 'text-red-600 bg-red-50 animate-pulse' : 'text-gray-400'}`}
-                        onClick={startVoiceSearch}
-                        title="Voice Search"
-                      >
-                        <Mic className={`size-4 ${isListening ? 'fill-red-600' : ''}`} />
-                      </Button>
+                        }}
+                        className="pl-10 pr-12 h-11 text-sm bg-gray-50/60 border-gray-200 rounded-xl focus-visible:ring-emerald-600"
+                      />
+                      <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`size-8 rounded-full ${isListening ? 'text-red-600 bg-red-50 animate-pulse' : 'text-gray-400'}`}
+                          onClick={startVoiceSearch}
+                          title="Voice Search"
+                        >
+                          <Mic className={`size-4 ${isListening ? 'fill-red-600' : ''}`} />
+                        </Button>
+                      </div>
                     </div>
+
+                    {/* Sort Dropdown */}
+                    <Select value={sortBy} onValueChange={setSortBy}>
+                      <SelectTrigger className="w-full sm:w-44 h-11 bg-white border-gray-200 rounded-xl text-xs font-bold text-gray-700 shadow-2xs">
+                        <SelectValue placeholder="Sort: Best Match" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="best-match">Sort: Best Match</SelectItem>
+                        <SelectItem value="a-z">Name: A to Z</SelectItem>
+                        <SelectItem value="z-a">Name: Z to A</SelectItem>
+                        <SelectItem value="price-low">Price: Low to High</SelectItem>
+                        <SelectItem value="price-high">Price: High to Low</SelectItem>
+                        <SelectItem value="newest">Newest Added</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
-                  {/* Sort Dropdown */}
-                  <Select value={sortBy} onValueChange={setSortBy}>
-                    <SelectTrigger className="w-full sm:w-44 h-11 bg-white border-gray-200 rounded-xl text-xs font-bold text-gray-700 shadow-2xs">
-                      <SelectValue placeholder="Sort: Best Match" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="best-match">Sort: Best Match</SelectItem>
-                      <SelectItem value="a-z">Name: A to Z</SelectItem>
-                      <SelectItem value="z-a">Name: Z to A</SelectItem>
-                      <SelectItem value="price-low">Price: Low to High</SelectItem>
-                      <SelectItem value="price-high">Price: High to Low</SelectItem>
-                      <SelectItem value="newest">Newest Added</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                  {/* Category Pills */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                    {POS_FILTER_CATEGORIES.map(cat => {
+                      const isActive = selectedCategory === cat;
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setSelectedCategory(cat)}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 whitespace-nowrap ${
+                            isActive
+                              ? 'bg-[#166534] text-white shadow-xs'
+                              : 'bg-emerald-50/70 text-emerald-900 hover:bg-emerald-100/80 border border-emerald-100/60'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                {/* 2. Category Pills */}
-                <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-                  {POS_FILTER_CATEGORIES.map(cat => {
-                    const isActive = selectedCategory === cat;
-                    return (
+                  {/* Alphabet Quick Filter & Active Reset */}
+                  <div className="flex items-center justify-between gap-1 overflow-x-auto pb-1 scrollbar-none border-t border-gray-100 pt-2.5">
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
-                        key={cat}
                         type="button"
-                        onClick={() => setSelectedCategory(cat)}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 whitespace-nowrap ${
-                          isActive
+                        onClick={() => setSelectedLetter('ALL')}
+                        className={`px-2.5 py-1 text-[11px] font-black rounded-md transition-all shrink-0 uppercase tracking-wider ${
+                          selectedLetter === 'ALL'
                             ? 'bg-[#166534] text-white shadow-xs'
-                            : 'bg-emerald-50/70 text-emerald-900 hover:bg-emerald-100/80 border border-emerald-100/60'
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* 3. Alphabet Quick Filter & Active Reset */}
-                <div className="flex items-center justify-between gap-1 overflow-x-auto pb-1 scrollbar-none border-t border-gray-100 pt-2.5">
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedLetter('ALL')}
-                      className={`px-2.5 py-1 text-[11px] font-black rounded-md transition-all shrink-0 uppercase tracking-wider ${
-                        selectedLetter === 'ALL'
-                          ? 'bg-[#166534] text-white shadow-xs'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      All
-                    </button>
-                    {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(letter => (
-                      <button
-                        key={letter}
-                        type="button"
-                        onClick={() => setSelectedLetter(prev => prev === letter ? 'ALL' : letter)}
-                        className={`size-6 flex items-center justify-center text-[11px] font-black rounded-md transition-all shrink-0 ${
-                          selectedLetter === letter
-                            ? 'bg-[#166534] text-white shadow-xs scale-105'
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         }`}
                       >
-                        {letter}
+                        All
                       </button>
-                    ))}
-                  </div>
+                      {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(letter => (
+                        <button
+                          key={letter}
+                          type="button"
+                          onClick={() => setSelectedLetter(prev => prev === letter ? 'ALL' : letter)}
+                          className={`size-6 flex items-center justify-center text-[11px] font-black rounded-md transition-all shrink-0 ${
+                            selectedLetter === letter
+                              ? 'bg-[#166534] text-white shadow-xs scale-105'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {letter}
+                        </button>
+                      ))}
+                    </div>
 
-                  {hasActiveFilters && (
-                    <button
-                      type="button"
-                      onClick={resetAllFilters}
-                      className="text-[11px] text-red-600 hover:text-red-800 font-black whitespace-nowrap px-2.5 py-1 bg-red-50 hover:bg-red-100 rounded-md transition-all shrink-0 ml-2"
-                    >
-                      Reset Filters
-                    </button>
-                  )}
-                </div>
-
-                {/* 4. Product Cards Grid (Pure White Backgrounds & Authentic Images) */}
-                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 pt-1">
-                  {filteredProducts.slice(0, visibleCount).map((product) => {
-                    const { totalSellable, allExpired, hasExpiredBatch } = getSellableStock(product);
-                    const isUnsellable = totalSellable <= 0;
-                    const imgInfo = getProductImage(product);
-
-                    return (
-                      <div
-                        key={product.id}
-                        onClick={() => !isUnsellable && addToCart(product)}
-                        className={`bg-white rounded-xl border border-gray-200/90 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between overflow-hidden p-3 group ${
-                          isUnsellable ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-                        }`}
+                    {hasActiveFilters && (
+                      <button
+                        type="button"
+                        onClick={resetAllFilters}
+                        className="text-[11px] text-red-600 hover:text-red-800 font-black whitespace-nowrap px-2.5 py-1 bg-red-50 hover:bg-red-100 rounded-md transition-all shrink-0 ml-2"
                       >
-                        {/* Pure White Background Image Container */}
-                        <div className="h-32 w-full bg-white flex items-center justify-center p-2 mb-2 rounded-lg relative overflow-hidden">
-                          <img
-                            src={imgInfo.imageUrl}
-                            alt={product.name}
-                            className="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-200"
-                            loading="lazy"
-                            onError={(e) => {
-                              const target = e.currentTarget;
-                              target.onerror = null;
-                              target.src = imgInfo.fallbackUrl;
-                            }}
-                          />
-                          {isRxProduct(product) && (
-                            <span
-                              className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white shadow-2xs"
-                              style={{ backgroundColor: '#dc2626' }}
-                              title="Prescription Required"
-                            >
-                              Rx
-                            </span>
-                          )}
-                          {allExpired ? (
-                            <Badge variant="destructive" className="absolute top-1.5 right-1.5 text-[9px] font-black uppercase">EXPIRED</Badge>
-                          ) : hasExpiredBatch ? (
-                            <Badge variant="outline" className="absolute top-1.5 right-1.5 text-[9px] font-bold border-amber-500 text-amber-700 bg-amber-50">Has Expired Batch</Badge>
-                          ) : null}
-                        </div>
-
-                        {/* Details */}
-                        <div className="flex-1 flex flex-col">
-                          <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md inline-block w-fit mb-1">
-                            {imgInfo.categoryTag}
-                          </span>
-                          <h4
-                            className="font-bold text-sm text-gray-900 leading-snug line-clamp-2 min-h-[2.5rem] mb-0.5"
-                            title={product.name}
-                          >
-                            {product.name.replace(/\*/g, '')}
-                          </h4>
-                          <p className="text-xs text-gray-400 font-medium mb-2.5 truncate">
-                            {imgInfo.brandTag || 'Generic'}
-                          </p>
-                        </div>
-
-                        {/* Price & Action */}
-                        <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-auto">
-                          <div>
-                            <span className="text-base font-extrabold text-blue-700 block leading-tight">
-                              ₱{product.price.toFixed(2)}
-                            </span>
-                            <span className={`text-[11px] font-bold block ${totalSellable > 20 ? 'text-gray-500' : totalSellable > 0 ? 'text-amber-600' : 'text-red-500'}`}>
-                              {totalSellable > 0 ? `In Stock: ${totalSellable}+` : 'Out of Stock'}
-                            </span>
-                          </div>
-                          <Button
-                            size="sm"
-                            disabled={isUnsellable}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              addToCart(product);
-                            }}
-                            className="bg-[#166534] hover:bg-[#14532d] text-white font-bold text-xs px-3 py-1.5 h-8 rounded-lg shadow-2xs flex items-center gap-1 transition-transform active:scale-95"
-                          >
-                            <Plus className="size-3.5" />
-                            Add
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        Reset Filters
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {filteredProducts.length === 0 && (
-                  <div className="py-12 text-center text-gray-500 bg-gray-50/50 rounded-xl">
-                    No products found matching your filters.
-                  </div>
-                )}
+                {/* 2. Scrollable Product Cards Grid (Scrollbar placed directly between Products and Cart) */}
+                <div
+                  className="flex-1 overflow-y-auto pr-2 pt-3 custom-scrollbar min-h-0"
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    if (el.scrollHeight - el.scrollTop <= el.clientHeight + 80) {
+                      if (visibleCount < filteredProducts.length) {
+                        setVisibleCount(prev => prev + 24);
+                      }
+                    }
+                  }}
+                >
+                  <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 pt-1 pb-4">
+                    {filteredProducts.slice(0, visibleCount).map((product) => {
+                      const { totalSellable, allExpired, hasExpiredBatch } = getSellableStock(product);
+                      const isUnsellable = totalSellable <= 0;
+                      const imgInfo = getProductImage(product);
 
-                {/* 5. Footer Counter and Load More */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
-                  <div>
-                    {visibleCount < filteredProducts.length ? (
+                      return (
+                        <div
+                          key={product.id}
+                          onClick={() => !isUnsellable && addToCart(product)}
+                          className={`bg-white rounded-xl border border-gray-200/90 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between overflow-hidden p-3 group ${
+                            isUnsellable ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+                          }`}
+                        >
+                          {/* Pure White Background Image Container */}
+                          <div className="h-32 w-full bg-white flex items-center justify-center p-2 mb-2 rounded-lg relative overflow-hidden">
+                            <img
+                              src={imgInfo.imageUrl}
+                              alt={product.name}
+                              className="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-200"
+                              loading="lazy"
+                              onError={(e) => {
+                                const target = e.currentTarget;
+                                target.onerror = null;
+                                target.src = imgInfo.fallbackUrl;
+                              }}
+                            />
+                            {isRxProduct(product) && (
+                              <span
+                                className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white shadow-2xs"
+                                style={{ backgroundColor: '#dc2626' }}
+                                title="Prescription Required"
+                              >
+                                Rx
+                              </span>
+                            )}
+                            {allExpired ? (
+                              <Badge variant="destructive" className="absolute top-1.5 right-1.5 text-[9px] font-black uppercase">EXPIRED</Badge>
+                            ) : hasExpiredBatch ? (
+                              <Badge variant="outline" className="absolute top-1.5 right-1.5 text-[9px] font-bold border-amber-500 text-amber-700 bg-amber-50">Has Expired Batch</Badge>
+                            ) : null}
+                          </div>
+
+                          {/* Details */}
+                          <div className="flex-1 flex flex-col">
+                            <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md inline-block w-fit mb-1">
+                              {imgInfo.categoryTag}
+                            </span>
+                            <h4
+                              className="font-bold text-sm text-gray-900 leading-snug line-clamp-2 min-h-[2.5rem] mb-0.5"
+                              title={product.name}
+                            >
+                              {product.name.replace(/\*/g, '')}
+                            </h4>
+                            <p className="text-xs text-gray-400 font-medium mb-2.5 truncate">
+                              {imgInfo.brandTag || 'Generic'}
+                            </p>
+                          </div>
+
+                          {/* Price & Action */}
+                          <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-auto">
+                            <div>
+                              <span className="text-base font-extrabold text-blue-700 block leading-tight">
+                                ₱{product.price.toFixed(2)}
+                              </span>
+                              <span className={`text-[11px] font-bold block ${totalSellable > 20 ? 'text-gray-500' : totalSellable > 0 ? 'text-amber-600' : 'text-red-500'}`}>
+                                {totalSellable > 0 ? `In Stock: ${totalSellable}+` : 'Out of Stock'}
+                              </span>
+                            </div>
+                            <Button
+                              size="sm"
+                              disabled={isUnsellable}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addToCart(product);
+                              }}
+                              className="bg-[#166534] hover:bg-[#14532d] text-white font-bold text-xs px-3 py-1.5 h-8 rounded-lg shadow-2xs flex items-center gap-1 transition-transform active:scale-95"
+                            >
+                              <Plus className="size-3.5" />
+                              Add
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {filteredProducts.length === 0 && (
+                    <div className="py-12 text-center text-gray-500 bg-gray-50/50 rounded-xl">
+                      No products found matching your filters.
+                    </div>
+                  )}
+
+                  {/* Scroll Down / Load More Indicator */}
+                  {visibleCount < filteredProducts.length && (
+                    <div className="py-3 text-center">
                       <button
                         type="button"
                         onClick={() => setVisibleCount(prev => prev + 24)}
-                        className="text-xs font-bold text-[#166534] hover:text-[#14532d] hover:underline"
+                        className="text-xs font-bold text-[#166534] hover:text-[#14532d] hover:underline px-3.5 py-1.5 bg-emerald-50 rounded-lg inline-block transition-colors"
                       >
-                        Scroll down to load more (Click to load +24)
+                        Showing {visibleCount} of {filteredProducts.length} • Scroll or click to load more
                       </button>
-                    ) : (
-                      <span>All products loaded</span>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Non-scrolling Footer Counter */}
+                <div className="shrink-0 flex items-center justify-between pt-2.5 border-t border-gray-100 text-xs text-gray-500">
                   <div className="font-semibold text-gray-600">
                     Showing 1–{Math.min(visibleCount, filteredProducts.length)} of {filteredProducts.length} products
                   </div>
+                  {visibleCount < filteredProducts.length ? (
+                    <span className="text-[11px] text-[#166534] font-medium">Scroll down to view more</span>
+                  ) : (
+                    <span className="text-[11px] text-gray-400">All products loaded</span>
+                  )}
                 </div>
               </Card>
             </ErrorBoundary>
           </div>
 
-          {/* CURRENT ORDER (CART) DRAWER */}
-          <div className="lg:col-span-4 xl:col-span-4 2xl:col-span-3 h-fit lg:sticky lg:top-4">
+          {/* CURRENT ORDER (CART) DRAWER - FIXED ON THE RIGHT */}
+          <div className="lg:col-span-4 xl:col-span-4 2xl:col-span-3 flex flex-col h-full min-h-0 lg:sticky lg:top-0">
             <ErrorBoundary fallbackTitle="Current Order Error">
-              <Card className="border border-gray-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white flex flex-col">
-                {/* Cart Header */}
-                <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white">
+              <Card className="border border-gray-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white flex flex-col h-full min-h-0">
+                {/* Cart Header - Fixed */}
+                <div className="shrink-0 p-4 border-b border-gray-100 flex items-center justify-between bg-white">
                   <div className="flex items-center gap-2">
                     <ShoppingCart className="size-5 text-[#166534]" />
                     <h3 className="font-extrabold text-lg text-gray-900">Current Order</h3>
@@ -937,8 +951,8 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                   </Button>
                 </div>
 
-                {/* Scrollable Cart Items */}
-                <div className="p-4 overflow-y-auto max-h-[380px] space-y-3 divide-y divide-gray-100">
+                {/* Scrollable Cart Items (Flexible height, scrolls if cart has many items) */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 divide-y divide-gray-100 custom-scrollbar min-h-0">
                   {cart.length > 0 ? (
                     cart.map((item) => (
                       <div key={item.product.id} className="pt-3 first:pt-0 space-y-2">
@@ -997,8 +1011,8 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                   )}
                 </div>
 
-                {/* Totals & Checkout Section */}
-                <div className="p-4 bg-gray-50/70 border-t border-gray-100 space-y-3">
+                {/* Totals & Checkout Section - Fixed at the bottom */}
+                <div className="shrink-0 p-4 bg-gray-50/70 border-t border-gray-100 space-y-3">
                   <div className="space-y-1.5 text-xs text-gray-600">
                     <div className="flex justify-between">
                       <span>Subtotal</span>

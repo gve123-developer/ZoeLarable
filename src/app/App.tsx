@@ -534,7 +534,7 @@ function App() {
         </ErrorBoundary>
 
         {/* Main Content */}
-        <main className="flex-1 w-full min-w-0 p-3 sm:p-4 md:p-6 overflow-y-auto">
+        <main className={`flex-1 w-full min-w-0 ${activeTab === 'pos' ? 'p-2 sm:p-3 md:p-4 lg:overflow-hidden overflow-y-auto' : 'p-3 sm:p-4 md:p-6 overflow-y-auto'}`}>
           {activeTab === 'dashboard' && (
             <Dashboard
               currentUser={currentUser}
