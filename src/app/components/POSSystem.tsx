@@ -823,7 +823,9 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                             className="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-200"
                             loading="lazy"
                             onError={(e) => {
-                              (e.target as HTMLImageElement).src = imgInfo.fallbackUrl;
+                              const target = e.currentTarget;
+                              target.onerror = null;
+                              target.src = imgInfo.fallbackUrl;
                             }}
                           />
                           {isRxProduct(product) && (
