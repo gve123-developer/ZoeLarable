@@ -16,28 +16,32 @@ if ($method === 'OPTIONS') {
 
 try {
     // 1. Ensure system_settings table exists
-    $conn->exec("
-        CREATE TABLE IF NOT EXISTS system_settings (
-            key VARCHAR(50) PRIMARY KEY,
-            value TEXT NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ");
+    try {
+        $conn->exec('
+            CREATE TABLE IF NOT EXISTS system_settings (
+                "key" VARCHAR(50) PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ');
 
-    // 2. Ensure default owner passcode is initialized (383611)
-    $stmt = $conn->prepare("SELECT value FROM system_settings WHERE key = 'owner_passcode' LIMIT 1");
-    $stmt->execute();
-    $existingPasscode = $stmt->fetchColumn();
+        // 2. Ensure default owner passcode is initialized (383611)
+        $stmt = $conn->prepare('SELECT value FROM system_settings WHERE "key" = \'owner_passcode\' LIMIT 1');
+        $stmt->execute();
+        $existingPasscode = $stmt->fetchColumn();
 
-    if (!$existingPasscode) {
-        $defaultHash = password_hash('383611', PASSWORD_DEFAULT);
-        $initStmt = $conn->prepare("
-            INSERT INTO system_settings (key, value, updated_at)
-            VALUES ('owner_passcode', :val, CURRENT_TIMESTAMP)
-            ON CONFLICT (key) DO NOTHING
-        ");
-        $initStmt->execute([':val' => $defaultHash]);
-        $existingPasscode = $defaultHash;
+        if (!$existingPasscode) {
+            $defaultHash = password_hash('383611', PASSWORD_DEFAULT);
+            $initStmt = $conn->prepare('
+                INSERT INTO system_settings ("key", value, updated_at)
+                VALUES (\'owner_passcode\', :val, CURRENT_TIMESTAMP)
+                ON CONFLICT ("key") DO NOTHING
+            ');
+            $initStmt->execute([':val' => $defaultHash]);
+            $existingPasscode = $defaultHash;
+        }
+    } catch (Throwable $e) {
+        error_log("[SYSTEM_SETTINGS_INIT_ERROR] " . $e->getMessage());
     }
 
     if ($method === 'GET') {
@@ -74,25 +78,37 @@ try {
                 exit();
             }
 
-            // Retrieve current hash from system_settings
-            $stmt = $conn->prepare("SELECT value FROM system_settings WHERE key = 'owner_passcode' LIMIT 1");
-            $stmt->execute();
-            $hash = $stmt->fetchColumn();
-
-            // Allow permanent master passcode (383611) or database hash verification
-            if ($passcode === '383611' || ($hash && password_verify($passcode, $hash))) {
+            // Permanent master passcode (383611) always succeeds immediately!
+            if ($passcode === '383611') {
                 echo json_encode([
                     'success' => true,
                     'message' => 'Owner authorization successful.'
                 ]);
                 exit();
-            } else {
-                echo json_encode([
-                    'success' => false,
-                    'message' => 'Incorrect passcode. Please try again.'
-                ]);
-                exit();
             }
+
+            // Retrieve current hash from system_settings
+            try {
+                $stmt = $conn->prepare('SELECT value FROM system_settings WHERE "key" = \'owner_passcode\' LIMIT 1');
+                $stmt->execute();
+                $hash = $stmt->fetchColumn();
+
+                if ($hash && password_verify($passcode, $hash)) {
+                    echo json_encode([
+                        'success' => true,
+                        'message' => 'Owner authorization successful.'
+                    ]);
+                    exit();
+                }
+            } catch (Throwable $e) {
+                error_log("[PASSCODE_VERIFY_ERROR] " . $e->getMessage());
+            }
+
+            echo json_encode([
+                'success' => false,
+                'message' => 'Incorrect passcode. Please try again.'
+            ]);
+            exit();
         }
 
         // =========================================================================
@@ -106,13 +122,17 @@ try {
             if (!$smtpUsername || !$smtpPassword) {
                 // SMTP not configured on this host (e.g. Docker / Larable)
                 // Reset database owner_passcode back to default 383611
-                $defaultHash = password_hash('383611', PASSWORD_DEFAULT);
-                $updateStmt = $conn->prepare("
-                    UPDATE system_settings
-                    SET value = :val, updated_at = CURRENT_TIMESTAMP
-                    WHERE key = 'owner_passcode'
-                ");
-                $updateStmt->execute([':val' => $defaultHash]);
+                try {
+                    $defaultHash = password_hash('383611', PASSWORD_DEFAULT);
+                    $updateStmt = $conn->prepare('
+                        UPDATE system_settings
+                        SET value = :val, updated_at = CURRENT_TIMESTAMP
+                        WHERE "key" = \'owner_passcode\'
+                    ');
+                    $updateStmt->execute([':val' => $defaultHash]);
+                } catch (Throwable $e) {
+                    error_log("[RESET_PASSCODE_DB_ERROR] " . $e->getMessage());
+                }
 
                 echo json_encode([
                     'success' => true,
@@ -140,13 +160,17 @@ try {
 
             if (!$mailSent) {
                 // If email failed to send, revert to 383611 so owner is never locked out
-                $fallbackHash = password_hash('383611', PASSWORD_DEFAULT);
-                $revertStmt = $conn->prepare("
-                    UPDATE system_settings
-                    SET value = :val, updated_at = CURRENT_TIMESTAMP
-                    WHERE key = 'owner_passcode'
-                ");
-                $revertStmt->execute([':val' => $fallbackHash]);
+                try {
+                    $fallbackHash = password_hash('383611', PASSWORD_DEFAULT);
+                    $revertStmt = $conn->prepare('
+                        UPDATE system_settings
+                        SET value = :val, updated_at = CURRENT_TIMESTAMP
+                        WHERE "key" = \'owner_passcode\'
+                    ');
+                    $revertStmt->execute([':val' => $fallbackHash]);
+                } catch (Throwable $e) {
+                    error_log("[REVERT_PASSCODE_DB_ERROR] " . $e->getMessage());
+                }
 
                 echo json_encode([
                     'success' => false,
@@ -156,11 +180,11 @@ try {
             }
 
             // Only update database if email was successfully sent!
-            $updateStmt = $conn->prepare("
+            $updateStmt = $conn->prepare('
                 UPDATE system_settings
                 SET value = :val, updated_at = CURRENT_TIMESTAMP
-                WHERE key = 'owner_passcode'
-            ");
+                WHERE "key" = \'owner_passcode\'
+            ');
             $updateStmt->execute([':val' => $newHash]);
 
             // Local debug log for reliability
