@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/app/components/ui/badge';
 import { Separator } from '@/app/components/ui/separator';
 import { toast } from 'sonner';
-import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, FileText, Mic, CheckCircle2 } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, FileText, Mic, CheckCircle2, QrCode } from 'lucide-react';
+import { getProductImage, POS_FILTER_CATEGORIES } from '@/app/utils/productImages';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/app/components/ui/dialog';
 import { logAuditAction } from '@/app/utils/auditUtils';
 import { ErrorBoundary } from '@/app/components/ErrorBoundary';
@@ -89,10 +90,12 @@ const POPULAR_BRANDS = [
 
 export function POSSystem({ currentUser, products, onProductsChange }: POSSystemProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [filterCondition, setFilterCondition] = useState('all');
   const [filterBrand, setFilterBrand] = useState('all');
   const [selectedLetter, setSelectedLetter] = useState('ALL');
-  const [sortBy, setSortBy] = useState('a-z');
+  const [sortBy, setSortBy] = useState('best-match');
+  const [visibleCount, setVisibleCount] = useState(24);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [amountReceived, setAmountReceived] = useState('');
@@ -130,13 +133,21 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
 
   const resetAllFilters = () => {
     setSearchQuery('');
+    setSelectedCategory('All');
     setFilterCondition('all');
     setFilterBrand('all');
     setSelectedLetter('ALL');
-    setSortBy('a-z');
+    setSortBy('best-match');
+    setVisibleCount(24);
   };
 
-  const hasActiveFilters = searchQuery !== '' || filterCondition !== 'all' || filterBrand !== 'all' || selectedLetter !== 'ALL' || sortBy !== 'a-z';
+  const clearCart = () => {
+    setCart([]);
+    setAmountReceived('');
+    toast.info('New sale started. Cart cleared.');
+  };
+
+  const hasActiveFilters = searchQuery !== '' || selectedCategory !== 'All' || filterCondition !== 'all' || filterBrand !== 'all' || selectedLetter !== 'ALL' || sortBy !== 'best-match';
 
 
   const startVoiceSearch = () => {
@@ -241,6 +252,16 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
         const descLower = (product.description || '').toLowerCase();
         const combinedText = `${nameLower} ${descLower}`;
 
+        // Category Pill Filter
+        if (selectedCategory !== 'All') {
+          const imgInfo = getProductImage(product);
+          const selCatLower = selectedCategory.toLowerCase();
+          const matchesCat = imgInfo.categoryTag.toLowerCase() === selCatLower ||
+            (product.category || '').toLowerCase().includes(selCatLower) ||
+            combinedText.includes(selCatLower);
+          if (!matchesCat) return false;
+        }
+
         // Health Condition / Purpose Filter (e.g. Rx Only, For Fever, For Cough, etc.)
         if (filterCondition !== 'all') {
           if (filterCondition === 'rx_only') {
@@ -264,7 +285,14 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
         return true;
       })
       .sort((a, b) => {
-        if (sortBy === 'a-z') {
+        if (sortBy === 'best-match') {
+          const stockA = Number(a.quantity || 0) + Number(a.newStockQuantity || 0);
+          const stockB = Number(b.quantity || 0) + Number(b.newStockQuantity || 0);
+          if ((stockA > 0) !== (stockB > 0)) {
+            return stockB > 0 ? 1 : -1;
+          }
+          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        } else if (sortBy === 'a-z') {
           return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
         } else if (sortBy === 'z-a') {
           return b.name.localeCompare(a.name, undefined, { sensitivity: 'base' });
@@ -277,7 +305,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
         }
         return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
       });
-  }, [products, searchQuery, filterCondition, filterBrand, selectedLetter, sortBy]);
+  }, [products, searchQuery, selectedCategory, filterCondition, filterBrand, selectedLetter, sortBy]);
 
   const addToCart = (product: Product) => {
     const { totalSellable, allExpired } = getSellableStock(product);
@@ -535,11 +563,6 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
     }
   };
 
-  const clearCart = () => {
-    setCart([]);
-    setAmountReceived('');
-  };
-
   const generatePDF = (t: Transaction) => {
     // Calculate required height: Base height (approx 150mm) + 12mm per item
     const itemsCount = t.items.length;
@@ -647,372 +670,403 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
 
   return (
     <ErrorBoundary fallbackTitle="POS System Module Error">
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-semibold text-gray-900">Point of Sale</h2>
-          <p className="text-sm text-gray-700 font-semibold mt-1">Process sales transactions</p>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Product Selection */}
-          <div className="lg:col-span-7 xl:col-span-8 space-y-4">
-            <ErrorBoundary fallbackTitle="Product Selection Error">
-              <Card>
-                <CardHeader className="space-y-3 pb-3">
-                  {/* Top Row: Search and Sort */}
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 size-4 text-gray-400" />
-                      <Input
-                        placeholder="Search medicines by name, brand, or SKU..."
-                        value={searchQuery}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-                        className="pl-10 pr-10"
-                      />
+      <div className="space-y-4">
+        {/* Layout Grid: Catalog Left (70%) + Current Order Right (30%) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          {/* CATALOG SECTION */}
+          <div className="lg:col-span-8 xl:col-span-8 2xl:col-span-9 space-y-3.5">
+            <ErrorBoundary fallbackTitle="Product Catalog Error">
+              <Card className="border border-gray-200/90 shadow-2xs rounded-2xl bg-white overflow-hidden p-4 space-y-3.5">
+                {/* 1. Top Search & Sort Row */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 size-4 text-gray-400" />
+                    <Input
+                      placeholder="Search product name, brand, SKU..."
+                      value={searchQuery}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const q = searchQuery.trim().toLowerCase();
+                          if (!q) return;
+                          const exactSku = products.find(p => p.sku.toLowerCase() === q);
+                          if (exactSku) {
+                            addToCart(exactSku);
+                            setSearchQuery('');
+                            return;
+                          }
+                          if (filteredProducts.length === 1) {
+                            addToCart(filteredProducts[0]);
+                            setSearchQuery('');
+                          }
+                        }
+                      }}
+                      className="pl-10 pr-20 h-11 text-sm bg-gray-50/60 border-gray-200 rounded-xl focus-visible:ring-emerald-600"
+                    />
+                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
+                      {/* Barcode scanner icon */}
+                      <span className="p-1.5 text-gray-400 hover:text-gray-600 cursor-pointer" title="Barcode Scanner Ready">
+                        <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 5v14M8 5v14M12 5v14M17 5v14M21 5v14M5 5v14M14 5v14M19 5v14" />
+                        </svg>
+                      </span>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className={`absolute right-1 top-1/2 transform -translate-y-1/2 size-8 rounded-full ${isListening ? 'text-red-600 bg-red-50 animate-pulse' : 'text-gray-400'}`}
+                        className={`size-8 rounded-full ${isListening ? 'text-red-600 bg-red-50 animate-pulse' : 'text-gray-400'}`}
                         onClick={startVoiceSearch}
                         title="Voice Search"
                       >
                         <Mic className={`size-4 ${isListening ? 'fill-red-600' : ''}`} />
                       </Button>
                     </div>
-
-                    {/* Sort Order Dropdown */}
-                    <Select value={sortBy} onValueChange={setSortBy}>
-                      <SelectTrigger className="w-full sm:w-44">
-                        <SelectValue placeholder="Sort A-Z" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="a-z">Sort: A to Z</SelectItem>
-                        <SelectItem value="z-a">Sort: Z to A</SelectItem>
-                        <SelectItem value="price-low">Price: Low to High</SelectItem>
-                        <SelectItem value="price-high">Price: High to Low</SelectItem>
-                        <SelectItem value="newest">Newest Added</SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
 
-                  {/* Middle Row: Purpose (e.g. For Fever) and Brand Filters */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {/* Health Condition / Purpose Filter */}
-                    <Select value={filterCondition} onValueChange={setFilterCondition}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="All Health Uses" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {HEALTH_CONDITIONS.map(cond => (
-                          <SelectItem key={cond.id} value={cond.id}>{cond.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  {/* Sort Dropdown */}
+                  <Select value={sortBy} onValueChange={setSortBy}>
+                    <SelectTrigger className="w-full sm:w-44 h-11 bg-white border-gray-200 rounded-xl text-xs font-bold text-gray-700 shadow-2xs">
+                      <SelectValue placeholder="Sort: Best Match" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="best-match">Sort: Best Match</SelectItem>
+                      <SelectItem value="a-z">Name: A to Z</SelectItem>
+                      <SelectItem value="z-a">Name: Z to A</SelectItem>
+                      <SelectItem value="price-low">Price: Low to High</SelectItem>
+                      <SelectItem value="price-high">Price: High to Low</SelectItem>
+                      <SelectItem value="newest">Newest Added</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                    {/* Brand Filter */}
-                    <Select value={filterBrand} onValueChange={setFilterBrand}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="All Brands" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        <SelectItem value="all">All Brands</SelectItem>
-                        {allBrands.map(brand => (
-                          <SelectItem key={brand} value={brand}>
-                            {brand}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Bottom Row: A-Z Quick Letter Filter & Reset */}
-                  <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 pt-1 scrollbar-none">
-                    <div className="flex items-center gap-1 shrink-0">
+                {/* 2. Category Pills */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                  {POS_FILTER_CATEGORIES.map(cat => {
+                    const isActive = selectedCategory === cat;
+                    return (
                       <button
+                        key={cat}
                         type="button"
-                        onClick={() => setSelectedLetter('ALL')}
-                        className={`px-2.5 py-1 text-[11px] font-black rounded-lg transition-all shrink-0 uppercase tracking-wider ${selectedLetter === 'ALL'
-                          ? 'bg-gray-900 text-white shadow-sm'
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 whitespace-nowrap ${
+                          isActive
+                            ? 'bg-[#166534] text-white shadow-xs'
+                            : 'bg-emerald-50/70 text-emerald-900 hover:bg-emerald-100/80 border border-emerald-100/60'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 3. Alphabet Quick Filter & Active Reset */}
+                <div className="flex items-center justify-between gap-1 overflow-x-auto pb-1 scrollbar-none border-t border-gray-100 pt-2.5">
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLetter('ALL')}
+                      className={`px-2.5 py-1 text-[11px] font-black rounded-md transition-all shrink-0 uppercase tracking-wider ${
+                        selectedLetter === 'ALL'
+                          ? 'bg-[#166534] text-white shadow-xs'
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                      >
-                        All (A-Z)
-                      </button>
-                      {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(letter => (
-                        <button
-                          key={letter}
-                          type="button"
-                          onClick={() => setSelectedLetter(prev => prev === letter ? 'ALL' : letter)}
-                          className={`size-6 flex items-center justify-center text-[11px] font-black rounded-md transition-all shrink-0 ${selectedLetter === letter
-                            ? 'bg-[#54b768] text-white shadow-sm scale-105'
+                      }`}
+                    >
+                      All
+                    </button>
+                    {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(letter => (
+                      <button
+                        key={letter}
+                        type="button"
+                        onClick={() => setSelectedLetter(prev => prev === letter ? 'ALL' : letter)}
+                        className={`size-6 flex items-center justify-center text-[11px] font-black rounded-md transition-all shrink-0 ${
+                          selectedLetter === letter
+                            ? 'bg-[#166534] text-white shadow-xs scale-105'
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
-                        >
-                          {letter}
-                        </button>
-                      ))}
-                    </div>
+                        }`}
+                      >
+                        {letter}
+                      </button>
+                    ))}
+                  </div>
 
-                    {hasActiveFilters && (
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={resetAllFilters}
+                      className="text-[11px] text-red-600 hover:text-red-800 font-black whitespace-nowrap px-2.5 py-1 bg-red-50 hover:bg-red-100 rounded-md transition-all shrink-0 ml-2"
+                    >
+                      Reset Filters
+                    </button>
+                  )}
+                </div>
+
+                {/* 4. Product Cards Grid (Pure White Backgrounds & Authentic Images) */}
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 pt-1">
+                  {filteredProducts.slice(0, visibleCount).map((product) => {
+                    const { totalSellable, allExpired, hasExpiredBatch } = getSellableStock(product);
+                    const isUnsellable = totalSellable <= 0;
+                    const imgInfo = getProductImage(product);
+
+                    return (
+                      <div
+                        key={product.id}
+                        onClick={() => !isUnsellable && addToCart(product)}
+                        className={`bg-white rounded-xl border border-gray-200/90 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between overflow-hidden p-3 group ${
+                          isUnsellable ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+                        }`}
+                      >
+                        {/* Pure White Background Image Container */}
+                        <div className="h-32 w-full bg-white flex items-center justify-center p-2 mb-2 rounded-lg relative overflow-hidden">
+                          <img
+                            src={imgInfo.imageUrl}
+                            alt={product.name}
+                            className="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-200"
+                            loading="lazy"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200"><rect width="200" height="200" fill="%23ffffff"/><g transform="translate(30, 25)"><rect x="15" y="10" width="110" height="130" rx="8" fill="%23f8fafc" stroke="%23cbd5e1" stroke-width="2"/><rect x="15" y="10" width="110" height="35" rx="8" fill="%23047857"/><circle cx="70" cy="85" r="14" fill="%23ecfdf5" stroke="%23a7f3d0"/><path d="M70 78 v14 M63 85 h14" stroke="%23047857" stroke-width="2.5" stroke-linecap="round"/></g></svg>';
+                            }}
+                          />
+                          {isRxProduct(product) && (
+                            <span
+                              className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white shadow-2xs"
+                              style={{ backgroundColor: '#dc2626' }}
+                              title="Prescription Required"
+                            >
+                              Rx
+                            </span>
+                          )}
+                          {allExpired ? (
+                            <Badge variant="destructive" className="absolute top-1.5 right-1.5 text-[9px] font-black uppercase">EXPIRED</Badge>
+                          ) : hasExpiredBatch ? (
+                            <Badge variant="outline" className="absolute top-1.5 right-1.5 text-[9px] font-bold border-amber-500 text-amber-700 bg-amber-50">Has Expired Batch</Badge>
+                          ) : null}
+                        </div>
+
+                        {/* Details */}
+                        <div className="flex-1 flex flex-col">
+                          <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md inline-block w-fit mb-1">
+                            {imgInfo.categoryTag}
+                          </span>
+                          <h4
+                            className="font-bold text-sm text-gray-900 leading-snug line-clamp-2 min-h-[2.5rem] mb-0.5"
+                            title={product.name}
+                          >
+                            {product.name.replace(/\*/g, '')}
+                          </h4>
+                          <p className="text-xs text-gray-400 font-medium mb-2.5 truncate">
+                            {imgInfo.brandTag || 'Generic'}
+                          </p>
+                        </div>
+
+                        {/* Price & Action */}
+                        <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-auto">
+                          <div>
+                            <span className="text-base font-extrabold text-blue-700 block leading-tight">
+                              ₱{product.price.toFixed(2)}
+                            </span>
+                            <span className={`text-[11px] font-bold block ${totalSellable > 20 ? 'text-gray-500' : totalSellable > 0 ? 'text-amber-600' : 'text-red-500'}`}>
+                              {totalSellable > 0 ? `In Stock: ${totalSellable}+` : 'Out of Stock'}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            disabled={isUnsellable}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              addToCart(product);
+                            }}
+                            className="bg-[#166534] hover:bg-[#14532d] text-white font-bold text-xs px-3 py-1.5 h-8 rounded-lg shadow-2xs flex items-center gap-1 transition-transform active:scale-95"
+                          >
+                            <Plus className="size-3.5" />
+                            Add
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {filteredProducts.length === 0 && (
+                  <div className="py-12 text-center text-gray-500 bg-gray-50/50 rounded-xl">
+                    No products found matching your filters.
+                  </div>
+                )}
+
+                {/* 5. Footer Counter and Load More */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
+                  <div>
+                    {visibleCount < filteredProducts.length ? (
                       <button
                         type="button"
-                        onClick={resetAllFilters}
-                        className="text-[11px] text-red-600 hover:text-red-800 font-black whitespace-nowrap px-2 py-1 bg-red-50 hover:bg-red-100 rounded-md transition-all shrink-0 ml-2"
+                        onClick={() => setVisibleCount(prev => prev + 24)}
+                        className="text-xs font-bold text-[#166534] hover:text-[#14532d] hover:underline"
                       >
-                        Reset Filters
+                        Scroll down to load more (Click to load +24)
                       </button>
+                    ) : (
+                      <span>All products loaded</span>
                     )}
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[600px] overflow-y-auto pr-2">
-                    {filteredProducts.map((product) => {
-                      const { totalSellable, allExpired, hasExpiredBatch } = getSellableStock(product);
-                      const isUnsellable = totalSellable <= 0;
-
-                      return (
-                        <Card
-                          key={product.id}
-                          className={`transition-all border ${isUnsellable ? 'opacity-65 cursor-not-allowed bg-gray-50' : 'cursor-pointer hover:shadow-md'}`}
-                          style={{
-                            backgroundColor: isUnsellable ? '#f9fafb' : (product.category === 'Pharmaceutical' ? '#fafff0' : '#f0f7ff'),
-                            borderColor: isUnsellable ? '#d1d5db' : (product.category === 'Pharmaceutical' ? '#54b768' : '#4169E1')
-                          }}
-                          onClick={() => addToCart(product)}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex justify-between items-start mb-2">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <h4 className="font-bold text-gray-900">{product.name.replace(/\*/g, '')}</h4>
-                                  {isRxProduct(product) && (
-                                    <span
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider text-white shadow-xs shrink-0"
-                                      style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
-                                      title="Prescription Required (Rx)"
-                                    >
-                                      Rx
-                                    </span>
-                                  )}
-                                  {allExpired ? (
-                                    <Badge variant="destructive" className="h-5 px-1.5 text-[10px] uppercase font-black animate-pulse">EXPIRED</Badge>
-                                  ) : hasExpiredBatch ? (
-                                    <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase font-bold border-amber-500 text-amber-700 bg-amber-50">Has Expired Batch</Badge>
-                                  ) : (() => {
-                                    const days = getDaysRemaining(product.expiryDate);
-                                    if (days !== undefined && days <= 30) {
-                                      return <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase font-bold border-orange-500 text-orange-600 bg-orange-50">Expiring Soon</Badge>;
-                                    }
-                                    return null;
-                                  })()}
-                                </div>
-                                <p className="text-xs text-gray-500 font-mono tracking-tighter">{product.sku}</p>
-                              </div>
-                              <div className="flex flex-col items-end gap-1">
-                                {!allExpired && (
-                                  <Badge variant={totalSellable > 0 ? 'default' : 'destructive'} className="font-black text-[10px] uppercase tracking-widest">
-                                    {totalSellable > 0 ? `${totalSellable} AVAILABLE` : 'OUT OF STOCK'}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex justify-between items-center mt-2">
-                              <span className="text-lg font-black text-blue-700">₱{product.price.toFixed(2)}</span>
-                              <Button size="sm" variant="outline" disabled={isUnsellable} className="border-2 border-blue-100 hover:bg-blue-600 hover:text-white transition-all">
-                                <Plus className="size-4" />
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                    {filteredProducts.length === 0 && (
-                      <div className="col-span-2 text-center py-8 text-gray-500">
-                        No products found
-                      </div>
-                    )}
+                  <div className="font-semibold text-gray-600">
+                    Showing 1–{Math.min(visibleCount, filteredProducts.length)} of {filteredProducts.length} products
                   </div>
-                </CardContent>
+                </div>
               </Card>
             </ErrorBoundary>
           </div>
 
-          {/* Cart and Checkout - IMAGE MATCHED DESIGN */}
-          <div className="lg:col-span-12 xl:col-span-4 h-fit lg:sticky lg:top-6">
-            <ErrorBoundary fallbackTitle="Order Summary Error">
-              <Card className="flex flex-col max-h-[calc(100vh-100px)] border border-gray-100 rounded-xl overflow-hidden shadow-sm bg-white">
-                <CardHeader className="bg-[#f0f7ff] border-b border-blue-50 py-3 px-5">
-                  <CardTitle className="flex items-center gap-2 text-[#2b59c3]">
-                    <ShoppingCart className="size-5" />
-                    <span className="text-lg font-bold">Order Summary</span>
-                  </CardTitle>
-                </CardHeader>
-
-                <CardContent className="flex flex-col flex-1 overflow-hidden p-5 space-y-6">
-                  {/* Cart Items Area - Scrollable */}
-                  <div className="flex-1 overflow-y-auto space-y-5 pr-2">
-                    {cart.length > 0 ? (
-                      <>
-                        {/* Customer Purchase Info Box */}
-                        <div className="bg-[#eff6ff] p-4 rounded-xl border border-blue-100 space-y-2">
-                          <div className="flex items-center gap-2 text-[#1e40af]">
-                            <FileText className="size-4" />
-                            <h3 className="font-bold text-sm">Customer Purchase</h3>
-                          </div>
-                          <div className="space-y-0.5">
-                            <p className="text-[11px] text-gray-500 font-medium">Order Date: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
-                            <p className="text-[11px] text-gray-500 font-medium">Cashier: {currentUser.name}</p>
-                          </div>
-                        </div>
-
-                        {/* Items Section */}
-                        <div className="space-y-3">
-                          <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">ITEMS</h4>
-                          <div className="space-y-3">
-                            {cart.map((item, index) => (
-                              <div key={item.product.id} className="relative bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-all">
-                                <div className="flex justify-between items-start mb-2">
-                                  <div className="flex-1 min-w-0 pr-6">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <h4 className="font-bold text-sm text-gray-800 truncate uppercase tracking-tight">{item.product.name.replace(/\*/g, '')}</h4>
-                                      {isRxProduct(item.product) && (
-                                        <span
-                                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white shrink-0 shadow-xs"
-                                          style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
-                                          title="Prescription Required (Rx)"
-                                        >
-                                          Rx
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-[10px] text-gray-400 font-mono">{item.product.sku}</p>
-                                    <p className="text-[11px] text-[#2b59c3] font-medium mt-1">₱{item.product.price.toFixed(2)} each</p>
-                                  </div>
-                                  <button
-                                    onClick={() => removeFromCart(item.product.id)}
-                                    className="text-red-400 hover:text-red-500 transition-colors"
-                                  >
-                                    <Trash2 className="size-4" />
-                                  </button>
-                                </div>
-
-                                <div className="flex items-end justify-between gap-4 mt-4">
-                                  <div className="flex items-center gap-1 border border-gray-100 rounded-lg p-1">
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      onClick={() => updateCartQuantity(item.product.id, Math.max(0, item.quantity - 1))}
-                                      className="size-7 border border-gray-100 rounded-md"
-                                    >
-                                      <Minus className="size-3" />
-                                    </Button>
-                                    <Input
-                                      type="number"
-                                      value={String(item.quantity)}
-                                      onChange={(e) => updateCartQuantity(item.product.id, Number(e.target.value) || 0)}
-                                      className="w-12 h-7 border-0 bg-gray-50 text-center font-bold text-xs p-0 focus-visible:ring-0"
-                                    />
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
-                                      className="size-7 border border-gray-100 rounded-md"
-                                    >
-                                      <Plus className="size-3" />
-                                    </Button>
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="text-[10px] text-gray-400 font-medium">Subtotal</p>
-                                    <p className="font-black text-base text-gray-900 leading-none">
-                                      ₱{(item.product.price * item.quantity).toFixed(2)}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-20 text-center opacity-30">
-                        <ShoppingCart className="size-12 mb-4 text-gray-400" />
-                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Cart is empty</p>
-                      </div>
-                    )}
+          {/* CURRENT ORDER (CART) DRAWER */}
+          <div className="lg:col-span-4 xl:col-span-4 2xl:col-span-3 h-fit lg:sticky lg:top-4">
+            <ErrorBoundary fallbackTitle="Current Order Error">
+              <Card className="border border-gray-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white flex flex-col">
+                {/* Cart Header */}
+                <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white">
+                  <div className="flex items-center gap-2">
+                    <ShoppingCart className="size-5 text-[#166534]" />
+                    <h3 className="font-extrabold text-lg text-gray-900">Current Order</h3>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearCart}
+                    className="text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg px-2.5 py-1 h-7"
+                  >
+                    New Sale
+                  </Button>
+                </div>
 
-                  {/* BOTTOM SECTION: Fixed (Total + Payment + Actions) */}
-                  {cart.length > 0 && (
-                    <div className="flex-shrink-0 bg-white border-t border-gray-100 p-5 space-y-4 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.04)]">
-                      {/* Grand Total Summary - ALWAYS VISIBLE */}
-                      <div className="bg-[#f8fafc] p-4 rounded-xl border border-blue-50 flex items-center justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Grand Total</span>
-                          <span className="text-3xl font-black text-[#2b59c3]">₱{calculateTotal().toFixed(2)}</span>
-                        </div>
-                        <div className="text-right">
-                           <Badge variant="outline" className="text-[9px] font-bold text-blue-500 border-blue-100 bg-blue-50/10">
-                             {cart.reduce((sum, item) => sum + item.quantity, 0)} ITEMS
-                           </Badge>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[11px] font-bold text-gray-500 pl-1">Payment Method</label>
-                            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                              <SelectTrigger className="bg-gray-50 border-gray-100 h-11 text-xs font-bold text-gray-700">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="cash">Cash</SelectItem>
-                              </SelectContent>
-                            </Select>
+                {/* Scrollable Cart Items */}
+                <div className="p-4 overflow-y-auto max-h-[380px] space-y-3 divide-y divide-gray-100">
+                  {cart.length > 0 ? (
+                    cart.map((item) => (
+                      <div key={item.product.id} className="pt-3 first:pt-0 space-y-2">
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-sm text-gray-900 truncate" title={item.product.name}>
+                              {item.product.name.replace(/\*/g, '')}
+                            </h4>
+                            <p className="text-[11px] text-gray-400 font-mono">SKU: {item.product.sku}</p>
                           </div>
-
-                          <div className="space-y-1.5">
-                            <label className="text-[11px] font-bold text-gray-600 pl-1">Amount Received</label>
-                            <Input
-                              type="number"
-                              placeholder="0.00"
-                              value={amountReceived}
-                              onChange={(e) => setAmountReceived(e.target.value)}
-                              className="bg-gray-50 border-gray-100 h-11 text-sm font-bold text-gray-700"
-                            />
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-sm text-gray-900">
+                              ₱{(item.product.price * item.quantity).toFixed(2)}
+                            </span>
+                            <button
+                              onClick={() => removeFromCart(item.product.id)}
+                              className="text-red-400 hover:text-red-600 transition-colors p-1"
+                              title="Remove Item"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
                           </div>
                         </div>
 
-                        {paymentMethod === 'cash' && amountReceived && (
-                           <div className="flex justify-between items-center px-1 bg-green-50/50 p-2 rounded-lg border border-green-100/50">
-                             <span className="text-[10px] font-black text-green-600 uppercase tracking-widest">Change Due</span>
-                             <span className="text-xl font-black text-green-700">₱{calculateChange().toFixed(2)}</span>
-                           </div>
-                        )}
+                        {/* Stepper */}
+                        <div className="flex items-center justify-between">
+                          <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50/80 p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => updateCartQuantity(item.product.id, Math.max(0, item.quantity - 1))}
+                              className="size-7 flex items-center justify-center rounded-md bg-white text-gray-700 hover:bg-gray-100 shadow-2xs text-sm font-bold"
+                            >
+                              <Minus className="size-3" />
+                            </button>
+                            <span className="w-9 text-center font-extrabold text-xs text-gray-900">
+                              {item.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
+                              className="size-7 flex items-center justify-center rounded-md bg-white text-gray-700 hover:bg-gray-100 shadow-2xs text-sm font-bold"
+                            >
+                              <Plus className="size-3" />
+                            </button>
+                          </div>
+                          <span className="text-xs text-gray-400">₱{item.product.price.toFixed(2)} / pc</span>
+                        </div>
                       </div>
-
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          onClick={clearCart}
-                          className="flex-1 h-11 border-gray-200 text-gray-500 font-bold text-xs"
-                        >
-                          Clear All
-                        </Button>
-                        <Button 
-                          onClick={handleCheckout}
-                          disabled={paymentMethod === 'cash' && (!amountReceived || calculateChange() < 0)}
-                          className="flex-1 h-11 bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-xs gap-2 rounded-lg shadow-lg shadow-blue-100"
-                        >
-                          <CreditCard className="size-4" />
-                          Complete Sale
-                        </Button>
-                      </div>
+                    ))
+                  ) : (
+                    <div className="py-12 text-center text-gray-400 flex flex-col items-center justify-center">
+                      <ShoppingCart className="size-10 mb-2 stroke-1 text-gray-300" />
+                      <p className="text-sm font-semibold text-gray-400">Order is empty</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Select products to add to current sale</p>
                     </div>
                   )}
-                </CardContent>
+                </div>
+
+                {/* Totals & Checkout Section */}
+                <div className="p-4 bg-gray-50/70 border-t border-gray-100 space-y-3">
+                  <div className="space-y-1.5 text-xs text-gray-600">
+                    <div className="flex justify-between">
+                      <span>Subtotal</span>
+                      <span className="font-bold text-gray-900">₱{(calculateTotal() / 1.12).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Discount</span>
+                      <span className="font-bold text-gray-900">₱0.00</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Tax (12%)</span>
+                      <span className="font-bold text-gray-900">₱{(calculateTotal() - calculateTotal() / 1.12).toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <Separator className="bg-gray-200" />
+
+                  {/* Grand Total */}
+                  <div className="flex items-baseline justify-between">
+                    <span className="font-extrabold text-base text-gray-800">Grand Total</span>
+                    <span className="text-2xl font-black text-[#166534]">
+                      ₱{calculateTotal().toFixed(2)}
+                    </span>
+                  </div>
+
+                  {/* Payment Options */}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <label className="text-[11px] font-bold text-gray-500 block mb-1">Payment Method</label>
+                      <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                        <SelectTrigger className="h-9 bg-white text-xs font-bold border-gray-200">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="gcash">GCash</SelectItem>
+                          <SelectItem value="maya">Maya</SelectItem>
+                          <SelectItem value="card">Card</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-gray-500 block mb-1">Amount Received</label>
+                      <Input
+                        type="number"
+                        placeholder="0.00"
+                        value={amountReceived}
+                        onChange={(e) => setAmountReceived(e.target.value)}
+                        className="h-9 bg-white text-xs font-bold border-gray-200"
+                      />
+                    </div>
+                  </div>
+
+                  {paymentMethod === 'cash' && amountReceived && (
+                    <div className="flex justify-between items-center bg-emerald-50/80 px-3 py-1.5 rounded-lg border border-emerald-100 text-xs">
+                      <span className="font-bold text-emerald-800 uppercase tracking-wider text-[10px]">Change</span>
+                      <span className="font-black text-sm text-emerald-700">₱{calculateChange().toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Complete Sale Button */}
+                  <Button
+                    onClick={handleCheckout}
+                    disabled={cart.length === 0 || (paymentMethod === 'cash' && (!amountReceived || calculateChange() < 0))}
+                    className="w-full h-11 bg-[#166534] hover:bg-[#14532d] text-white font-extrabold text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition-transform active:scale-[0.99]"
+                  >
+                    <CreditCard className="size-4" />
+                    Complete Sale
+                  </Button>
+                </div>
               </Card>
             </ErrorBoundary>
           </div>

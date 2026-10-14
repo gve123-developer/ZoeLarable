@@ -96,20 +96,23 @@ type Tab = 'dashboard' | 'inventory' | 'pos' | 'transactions' | 'reports' | 'use
 
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>('pos');
   const [products, setProducts] = useState<Product[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [poCurrentPage, setPoCurrentPage] = useState(1);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
 
-  // On desktop screens (>= 1024px), default sidebar to open
+  // Auto-hide sidebar when on POS for a full-width, zoomed-in terminal view
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
-    setIsSidebarOpen(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setIsSidebarOpen(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
+    if (activeTab === 'pos') {
+      setIsSidebarOpen(false);
+    } else {
+      // For other tabs on desktop, open sidebar if screen is wide enough
+      if (window.innerWidth >= 1024) {
+        setIsSidebarOpen(true);
+      }
+    }
+  }, [activeTab]);
 
   // Install global JS error logger once on app load
   useEffect(() => {
@@ -281,6 +284,8 @@ function App() {
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('currentUser', JSON.stringify(user));
+    setActiveTab('pos');
+    setIsSidebarOpen(false);
   };
 
   const handleLogout = () => {
@@ -290,7 +295,8 @@ function App() {
     }
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
-    setActiveTab('dashboard');
+    setActiveTab('pos');
+    setIsSidebarOpen(false);
   };
 
   const purchaseOrderItems = useMemo(() => {
@@ -470,8 +476,8 @@ function App() {
             <nav className="p-4 h-[calc(100%-60px)] lg:h-full flex flex-col">
               <div className="space-y-1">
                 {([
-                  { tab: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="size-[18px]" /> },
                   { tab: 'pos', label: 'Point of Sale', icon: <ShoppingCart className="size-[18px]" /> },
+                  { tab: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="size-[18px]" /> },
                   { tab: 'inventory', label: 'Inventory', icon: <Package className="size-[18px]" /> },
                   { tab: 'transactions', label: 'Transactions', icon: <ReceiptText className="size-[18px]" /> },
                   { tab: 'purchaseOrder', label: 'Purchase Order', icon: <ShoppingCart className="size-[18px]" /> },
