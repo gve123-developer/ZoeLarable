@@ -1248,9 +1248,9 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                 </div>
               </DialogHeader>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 py-2.5 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 py-2.5 items-stretch">
                 {/* LEFT COLUMN: Product Details & Old Batch (6 cols) */}
-                <div className="lg:col-span-6 space-y-2.5">
+                <div className="lg:col-span-6 flex flex-col gap-2.5">
                   {/* Product Info Card */}
                   <div className="p-3 bg-gray-50/80 border border-gray-200 rounded-xl space-y-2 shadow-2xs">
                     <div className="text-xs font-black text-gray-800 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-gray-200">
@@ -1338,121 +1338,85 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                     </div>
                     <div className="text-[10px] text-amber-900/90 bg-amber-100/60 p-1.5 rounded-lg border border-amber-200 flex items-center gap-1.5 leading-tight">
                       <Lock className="size-3 text-amber-700 shrink-0" />
-                      <span>Protektado ang Old Batch sa POS. Magdagdag ng bagong stock sa kanan (New Batch Queue).</span>
-                    </div>
-                  </div>
-
-                  {/* Summary Totals & Action Buttons (Moved up into Left Column space to eliminate scrolling) */}
-                  <div className="p-3 bg-white border border-gray-200 rounded-xl space-y-2.5 shadow-2xs">
-                    <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
-                      <div className="flex flex-wrap items-center gap-1.5 font-bold">
-                        <span className="text-amber-800 bg-amber-100 px-2 py-0.5 rounded text-[11px]">
-                          Old Batch: {formData.quantity || 0}
-                        </span>
-                        <span className="text-gray-400 font-bold">+</span>
-                        <span className="text-blue-800 bg-blue-100 px-2 py-0.5 rounded text-[11px]">
-                          New Batch Queue: {formData.newStockQuantity || 0}
-                        </span>
-                        <span className="text-gray-400 font-bold">=</span>
-                        <span className="text-gray-900 bg-gray-100 border border-gray-200 font-black px-2 py-0.5 rounded text-[11px]">
-                          Total: {Number(formData.quantity || 0) + Number(formData.newStockQuantity || 0)} units
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-end gap-2 pt-1.5 border-t border-gray-100">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => { setIsEditDialogOpen(false); setFormData({}); setEditingProduct(null); }}
-                        className="h-8 px-4 text-xs font-semibold cursor-pointer"
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => setShowSaveConfirm(true)}
-                        className="h-8 px-5 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs cursor-pointer shadow-xs"
-                      >
-                        Save Changes
-                      </Button>
+                      <span>Protektado ang Old Batch upang hindi maapektuhan o mabago ang kasalukuyang binibenta sa POS. Magdagdag ng bagong stock sa kanan (New Batch Queue).</span>
                     </div>
                   </div>
                 </div>
 
-                {/* RIGHT COLUMN (NASA GILID): New Batch Queue & Restocking (6 cols) */}
-                <div className="lg:col-span-6 space-y-3">
-                  <div className="p-3.5 bg-blue-50/80 border-2 border-blue-200 rounded-xl space-y-3 shadow-xs">
-                    <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-blue-200">
-                      <div className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-                        <Layers className="size-4 text-blue-600" /> New Batch Queue & Restocking
-                      </div>
-                      <Badge className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 shadow-2xs shrink-0 whitespace-nowrap">
-                        Total in Queue: {Number(formData.newStockQuantity || 0)} pcs
-                      </Badge>
-                    </div>
-
-                    {/* Queued batches list */}
+                {/* RIGHT COLUMN (NASA GILID): New Batch Queue & Restocking (6 cols - Stretched to align with Old Batch) */}
+                <div className="lg:col-span-6 flex flex-col">
+                  <div className="h-full p-3.5 bg-blue-50/80 border-2 border-blue-200 rounded-xl flex flex-col justify-between shadow-xs">
                     <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] font-black uppercase text-blue-900 tracking-wider">
-                          Waiting in Queue ({Array.isArray(formData.newBatchQueue) ? formData.newBatchQueue.length : 0} batches)
-                        </span>
-                        <span className="text-[10px] text-gray-500 font-medium">Automatic FEFO/FIFO Depletion</span>
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-blue-200">
+                        <div className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+                          <Layers className="size-4 text-blue-600" /> New Batch Queue & Restocking
+                        </div>
+                        <Badge className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 shadow-2xs shrink-0 whitespace-nowrap">
+                          Total in Queue: {Number(formData.newStockQuantity || 0)} pcs
+                        </Badge>
                       </div>
 
-                      {Array.isArray(formData.newBatchQueue) && formData.newBatchQueue.length > 0 ? (
-                        <div className="bg-white rounded-xl border border-blue-200 overflow-hidden divide-y divide-gray-100 max-h-[110px] overflow-y-auto shadow-2xs">
-                          <div className="bg-blue-100/70 px-3 py-1 text-[10px] font-black uppercase text-blue-900 grid grid-cols-12 gap-1.5 sticky top-0 z-10">
-                            <span className="col-span-1">#</span>
-                            <span className="col-span-4">Batch Number</span>
-                            <span className="col-span-2 text-center">Qty</span>
-                            <span className="col-span-2 text-center">Arrived</span>
-                            <span className="col-span-2 text-center">Expiry</span>
-                            <span className="col-span-1 text-right">Del</span>
-                          </div>
-                          {formData.newBatchQueue.map((b, idx) => (
-                            <div key={idx} className="px-3 py-1.5 text-xs grid grid-cols-12 gap-1.5 items-center hover:bg-blue-50/40">
-                              <span className="col-span-1 font-bold text-gray-400">#{idx + 1}</span>
-                              <span className="col-span-4 font-mono font-bold text-blue-900 truncate" title={b.batchNumber}>{b.batchNumber}</span>
-                              <span className="col-span-2 text-center font-black text-gray-800">{b.quantity} pcs</span>
-                              <span className="col-span-2 text-center text-[10px] font-medium text-gray-500 truncate" title={b.arrivalDate || 'N/A'}>{b.arrivalDate ? b.arrivalDate.slice(5) : 'N/A'}</span>
-                              <span className="col-span-2 text-center text-[10px] font-medium text-gray-600 truncate" title={b.expiryDate || 'N/A'}>{b.expiryDate || 'N/A'}</span>
-                              <div className="col-span-1 text-right">
-                                <button
-                                  type="button"
-                                  className="h-6 w-6 inline-flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 rounded cursor-pointer transition-colors"
-                                  onClick={() => {
-                                    const q = [...(formData.newBatchQueue || [])];
-                                    q.splice(idx, 1);
-                                    const tot = q.reduce((s, itm) => s + Number(itm.quantity || 0), 0);
-                                    const expArr = q.map(itm => itm.expiryDate).filter(Boolean) as string[];
-                                    setFormData({
-                                      ...formData,
-                                      newBatchQueue: q,
-                                      newStockQuantity: tot,
-                                      newStockExpiry: expArr.length > 0 ? expArr.sort()[0] : undefined
-                                    });
-                                    toast.info(`Removed batch ${b.batchNumber} from queue`);
-                                  }}
-                                  title="Remove this batch"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
+                      {/* Queued batches list */}
+                      <div className="mt-1.5">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-black uppercase text-blue-900 tracking-wider">
+                            Waiting in Queue ({Array.isArray(formData.newBatchQueue) ? formData.newBatchQueue.length : 0} batches)
+                          </span>
+                          <span className="text-[10px] text-gray-500 font-medium">Automatic FEFO/FIFO Depletion</span>
+                        </div>
+
+                        {Array.isArray(formData.newBatchQueue) && formData.newBatchQueue.length > 0 ? (
+                          <div className="bg-white rounded-xl border border-blue-200 overflow-hidden divide-y divide-gray-100 max-h-[120px] overflow-y-auto shadow-2xs">
+                            <div className="bg-blue-100/70 px-3 py-1 text-[10px] font-black uppercase text-blue-900 grid grid-cols-12 gap-1.5 sticky top-0 z-10">
+                              <span className="col-span-1">#</span>
+                              <span className="col-span-4">Batch Number</span>
+                              <span className="col-span-2 text-center">Qty</span>
+                              <span className="col-span-2 text-center">Arrived</span>
+                              <span className="col-span-2 text-center">Expiry</span>
+                              <span className="col-span-1 text-right">Del</span>
                             </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="p-2.5 text-center text-xs text-gray-500 bg-white rounded-xl border border-dashed border-blue-200">
-                          No incoming batches in queue. Fill out the form below to add.
-                        </div>
-                      )}
+                            {formData.newBatchQueue.map((b, idx) => (
+                              <div key={idx} className="px-3 py-1.5 text-xs grid grid-cols-12 gap-1.5 items-center hover:bg-blue-50/40">
+                                <span className="col-span-1 font-bold text-gray-400">#{idx + 1}</span>
+                                <span className="col-span-4 font-mono font-bold text-blue-900 truncate" title={b.batchNumber}>{b.batchNumber}</span>
+                                <span className="col-span-2 text-center font-black text-gray-800">{b.quantity} pcs</span>
+                                <span className="col-span-2 text-center text-[10px] font-medium text-gray-500 truncate" title={b.arrivalDate || 'N/A'}>{b.arrivalDate ? b.arrivalDate.slice(5) : 'N/A'}</span>
+                                <span className="col-span-2 text-center text-[10px] font-medium text-gray-600 truncate" title={b.expiryDate || 'N/A'}>{b.expiryDate || 'N/A'}</span>
+                                <div className="col-span-1 text-right">
+                                  <button
+                                    type="button"
+                                    className="h-6 w-6 inline-flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 rounded cursor-pointer transition-colors"
+                                    onClick={() => {
+                                      const q = [...(formData.newBatchQueue || [])];
+                                      q.splice(idx, 1);
+                                      const tot = q.reduce((s, itm) => s + Number(itm.quantity || 0), 0);
+                                      const expArr = q.map(itm => itm.expiryDate).filter(Boolean) as string[];
+                                      setFormData({
+                                        ...formData,
+                                        newBatchQueue: q,
+                                        newStockQuantity: tot,
+                                        newStockExpiry: expArr.length > 0 ? expArr.sort()[0] : undefined
+                                      });
+                                      toast.info(`Removed batch ${b.batchNumber} from queue`);
+                                    }}
+                                    title="Remove this batch"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-2 text-center text-xs text-gray-500 bg-white rounded-xl border border-dashed border-blue-200">
+                            No incoming batches in queue. Fill out the form below to add.
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Add / Restock Batch Form */}
-                    <div className="p-3 bg-white border border-blue-200 rounded-xl space-y-2.5 shadow-2xs">
+                    {/* Add / Restock Batch Form - Flex stretched */}
+                    <div className="p-3 bg-white border border-blue-200 rounded-xl flex-1 flex flex-col justify-between gap-2 shadow-2xs mt-2">
                       <div className="flex items-center justify-between pb-1 border-b border-gray-100">
                         <span className="text-[11px] font-black text-blue-800 uppercase tracking-wider flex items-center gap-1">
                           <Plus className="size-3.5 text-blue-600" /> Add Incoming Restock Batch
@@ -1565,16 +1529,50 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                           type="button"
                           size="sm"
                           onClick={handleAddBatchToQueue}
-                          className="w-full h-8 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                          className="w-full h-8.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                         >
                           <Plus className="size-3.5" />
-                          + Queue This Batch (Auto-accumulate if same batch #)
+                          Queue This Batch (Auto-accumulate if same batch #)
                         </Button>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
+
+              {/* DIALOG FOOTER: Balanced and aligned at the bottom across full width */}
+              <DialogFooter className="pt-2.5 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-xs text-gray-600 flex items-center gap-2">
+                  <span className="font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded text-[11px]">
+                    Old Batch: {formData.quantity || 0}
+                  </span>
+                  <span className="text-gray-400 font-bold">+</span>
+                  <span className="font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded text-[11px]">
+                    New Batch Queue: {formData.newStockQuantity || 0}
+                  </span>
+                  <span className="text-gray-400 font-bold">=</span>
+                  <span className="font-black text-gray-900 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[11px]">
+                    Total: {Number(formData.quantity || 0) + Number(formData.newStockQuantity || 0)} units
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => { setIsEditDialogOpen(false); setFormData({}); setEditingProduct(null); }}
+                    className="h-8 px-4 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => setShowSaveConfirm(true)}
+                    className="h-8 px-5 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs cursor-pointer shadow-xs"
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
         </ErrorBoundary>
