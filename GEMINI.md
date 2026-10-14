@@ -4,9 +4,11 @@
 
 This project is the live production system for Zoe Pharmacy and General Merchandise.
 
-*   **Repository:** `https://github.com/gve123-developer/ZoePharmacy-GenMerch`
+*   **Repositories:**
+    *   `https://github.com/gve123-developer/ZoePharmacy-GenMerch` (Heroku automatic deployment)
+    *   `https://github.com/gve123-developer/ZoeLarable` (Docker / Secondary hosting platform)
 *   **Production Branch:** `main`
-*   **Deployment:** GitHub `main` is connected to Heroku automatic deployment.
+*   **Dual Deployment:** `origin` is configured with dual push URLs so running `git push origin main` pushes and deploys to both repositories simultaneously.
 
 For every requested code or UI change:
 
