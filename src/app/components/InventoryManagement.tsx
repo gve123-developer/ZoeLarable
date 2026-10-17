@@ -598,9 +598,9 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
       ...workingData,
       dispensingMethod: method,
       imageUrl: workingData.imageUrl || null,
-      quantity: workingData.quantity,
+      quantity: Math.max(0, parseInt(String(workingData.quantity ?? 0), 10) || 0),
       expiryDate: method === 'FIFO' ? null : (workingData.expiryDate || null),
-      batchNumber: workingData.batchNumber,
+      batchNumber: workingData.batchNumber?.trim() || null,
       newBatchQueue: workingData.newBatchQueue || [],
       newStockQuantity: workingData.newStockQuantity || 0,
       newStockExpiry: method === 'FIFO' ? null : (workingData.newStockExpiry || null)
@@ -1717,52 +1717,71 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                     </div>
                   </div>
 
-                  {/* Old Batch Card (Protected / Non-Editable) */}
+                  {/* Old Batch Card (Editable) */}
                   <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2 shadow-2xs">
                     <div className="flex items-center justify-between pb-1 border-b border-amber-200">
                       <div className="text-xs font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
                         <Boxes className="size-3.5 text-amber-700" /> Old Batch (Active Stock in POS)
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded shadow-2xs">
-                          <Lock className="size-3 text-amber-700" /> Locked & Active
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-800 bg-amber-100/90 border border-amber-300 px-2 py-0.5 rounded shadow-2xs">
+                          <Edit className="size-3 text-amber-700" /> Editable Primary Stock
                         </span>
-                        <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">Primary Stock</span>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
                       <div className="space-y-1">
-                        <Label className="text-[11px] font-bold text-gray-700">Old Batch Quantity</Label>
-                        <div className="h-8 px-2.5 py-1 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
-                          <span className="font-bold text-gray-900 text-xs">{formData.quantity ?? 0} pcs</span>
-                          <span className="text-[9px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Read-Only</span>
-                        </div>
+                        <Label htmlFor="edit-old-qty" className="text-[11px] font-bold text-gray-700">Old Batch Quantity *</Label>
+                        <Input
+                          id="edit-old-qty"
+                          type="number"
+                          min="0"
+                          value={formData.quantity !== undefined && formData.quantity !== null ? formData.quantity : ''}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            quantity: e.target.value === '' ? ('' as any) : Math.max(0, parseInt(e.target.value, 10) || 0)
+                          })}
+                          className="h-8 text-xs bg-white font-bold text-gray-900 border-amber-300 focus-visible:ring-amber-500"
+                          placeholder="e.g. 100"
+                        />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[11px] font-bold text-gray-700">Old Batch Expiry Date</Label>
-                        <div className="h-8 px-2.5 py-1 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
-                          <span className="font-bold text-gray-800 text-xs">
-                            {formData.dispensingMethod === 'FIFO' ? 'No Expiry (FIFO)' : (formData.expiryDate || 'N/A')}
-                          </span>
-                          <span className="text-[9px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                            {formData.dispensingMethod === 'FIFO' ? 'FIFO' : 'Read-Only'}
-                          </span>
-                        </div>
+                        <Label htmlFor="edit-old-expiry" className="text-[11px] font-bold text-gray-700">
+                          Old Batch Expiry {formData.dispensingMethod === 'FIFO' ? '(N/A - FIFO)' : '*'}
+                        </Label>
+                        {formData.dispensingMethod === 'FIFO' ? (
+                          <div className="h-8 px-2.5 py-1 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none text-xs font-bold text-sky-800">
+                            <span>No Expiry (FIFO)</span>
+                            <span className="text-[9px] font-black uppercase text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded border border-sky-200">FIFO</span>
+                          </div>
+                        ) : (
+                          <Input
+                            id="edit-old-expiry"
+                            type="date"
+                            value={formData.expiryDate ? formData.expiryDate.slice(0, 10) : ''}
+                            onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                            className="h-8 text-xs bg-white font-medium border-amber-300 focus-visible:ring-amber-500"
+                          />
+                        )}
                       </div>
                     </div>
                     <div className="space-y-1">
                       <div className="flex items-center justify-between">
-                        <Label className="text-[11px] font-bold text-gray-700">Old Batch Number</Label>
+                        <Label htmlFor="edit-old-batch" className="text-[11px] font-bold text-gray-700">Old Batch Number / Code *</Label>
                         <span className="text-[10px] text-amber-800 font-medium">Active in POS system</span>
                       </div>
-                      <div className="h-8 px-2.5 py-1 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
-                        <span className="font-mono font-bold text-blue-900 text-xs">{formData.batchNumber || 'N/A'}</span>
-                        <span className="text-[9px] font-bold uppercase text-gray-500 bg-white/80 border border-gray-200 px-1.5 py-0.5 rounded">Fixed</span>
-                      </div>
+                      <Input
+                        id="edit-old-batch"
+                        type="text"
+                        value={formData.batchNumber || ''}
+                        onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value.toUpperCase() })}
+                        className="h-8 text-xs bg-white font-mono font-bold text-blue-900 border-amber-300 focus-visible:ring-amber-500"
+                        placeholder="e.g. 20261018-UNILAB"
+                      />
                     </div>
                     <div className="text-[10px] text-amber-900/90 bg-amber-100/60 p-1.5 rounded-lg border border-amber-200 flex items-center gap-1.5 leading-tight">
-                      <Lock className="size-3 text-amber-700 shrink-0" />
-                      <span>Protektado ang Old Batch upang hindi maapektuhan o mabago ang kasalukuyang binibenta sa POS. Magdagdag ng bagong stock sa kanan (New Batch Queue).</span>
+                      <Edit className="size-3 text-amber-700 shrink-0" />
+                      <span>Maaari nang i-edit ang Old Batch details (quantity, expiry date, o batch code) kung nagkaroon ng pagkakamali.</span>
                     </div>
                   </div>
                 </div>
