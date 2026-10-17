@@ -24,7 +24,6 @@ import { cn } from '@/app/components/ui/utils';
 import { ErrorBoundary } from '@/app/components/ErrorBoundary';
 import { logAuditAction } from '@/app/utils/auditUtils';
 import { isRxProduct } from '@/app/utils/rxUtils';
-import { getProductImage } from '@/app/utils/productImages';
 import { OwnerPasscodeModal } from '@/app/components/OwnerPasscodeModal';
 import {
   AlertDialog,
@@ -1359,52 +1358,36 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                     {paginatedProducts.map((product) => {
                       const status = getStockStatus(product);
                       const isFIFO = product.dispensingMethod === 'FIFO' || (!product.expiryDate && product.category !== 'Pharmaceutical');
-                      const imgInfo = getProductImage(product);
                       return (
                         <TableRow key={product.id} className="hover:bg-gray-50/50 transition-colors">
                           <TableCell className="px-6 py-4 border-r border-gray-200">
-                            <div className="flex items-center gap-3">
-                              <div className="size-11 rounded-lg bg-gray-50 border border-gray-200 shrink-0 overflow-hidden flex items-center justify-center p-0.5 shadow-2xs">
-                                <img
-                                  src={imgInfo.imageUrl}
-                                  alt={product.name}
-                                  className="size-full object-contain mix-blend-multiply"
-                                  loading="lazy"
-                                  onError={(e) => {
-                                    const target = e.currentTarget;
-                                    target.onerror = null;
-                                    target.src = imgInfo.fallbackUrl;
-                                  }}
-                                />
-                              </div>
-                              <div className="flex flex-col min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-bold text-gray-900 truncate max-w-[240px]" title={product.name}>
-                                    {product.name.replace(/\*/g, '')}
+                            <div className="flex flex-col min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-gray-900 truncate max-w-[280px]" title={product.name}>
+                                  {product.name.replace(/\*/g, '')}
+                                </span>
+                                {isRxProduct(product) && (
+                                  <span
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider text-white shadow-xs"
+                                    style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
+                                    title="Prescription Required (Rx)"
+                                  >
+                                    Rx
                                   </span>
-                                  {isRxProduct(product) && (
-                                    <span
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider text-white shadow-xs"
-                                      style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
-                                      title="Prescription Required (Rx)"
-                                    >
-                                      Rx
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-[10px] text-gray-400 font-black uppercase tracking-tighter bg-gray-100 px-1 rounded">{product.sku}</span>
-                                  <span className="text-[10px] text-blue-500 font-bold uppercase">{product.category}</span>
-                                  {isFIFO ? (
-                                    <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 border border-sky-200" title="First In, First Out (Walang Expiration)">
-                                      FIFO
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200" title="First Expired, First Out">
-                                      FEFO
-                                    </span>
-                                  )}
-                                </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-[10px] text-gray-400 font-black uppercase tracking-tighter bg-gray-100 px-1 rounded">{product.sku}</span>
+                                <span className="text-[10px] text-blue-500 font-bold uppercase">{product.category}</span>
+                                {isFIFO ? (
+                                  <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 border border-sky-200" title="First In, First Out (Walang Expiration)">
+                                    FIFO
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200" title="First Expired, First Out">
+                                    FEFO
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </TableCell>

@@ -476,10 +476,14 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
               }
             }
 
+            let updatedQueue = product.newBatchQueue ? product.newBatchQueue.map(b => ({ ...b })) : [];
+            let totalTakenFromNew = 0;
+
             if (consumeFromNewFirst) {
               // Deduct from New first, then Old
               const takeFromNew = Math.min(totalToDeduct, sellableNew);
               currentNew -= takeFromNew;
+              totalTakenFromNew += takeFromNew;
               totalToDeduct -= takeFromNew;
 
               if (totalToDeduct > 0 && sellableOld > 0) {
@@ -496,12 +500,24 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
               if (totalToDeduct > 0 && sellableNew > 0) {
                 const takeFromNew = Math.min(totalToDeduct, sellableNew);
                 currentNew -= takeFromNew;
+                totalTakenFromNew += takeFromNew;
                 totalToDeduct -= takeFromNew;
               }
             }
 
+            // Deduct from queued batches in order if stock was taken from New
+            if (totalTakenFromNew > 0 && updatedQueue.length > 0) {
+              let rem = totalTakenFromNew;
+              for (let qi = 0; qi < updatedQueue.length && rem > 0; qi++) {
+                const bQty = Number(updatedQueue[qi].quantity || 0);
+                const sub = Math.min(rem, bQty);
+                updatedQueue[qi].quantity = bQty - sub;
+                rem -= sub;
+              }
+              updatedQueue = updatedQueue.filter(b => Number(b.quantity || 0) > 0);
+            }
+
             // Auto-Rotate: If Old is now 0 and New remains, promote next queued batch to Old
-            let updatedQueue = product.newBatchQueue ? [...product.newBatchQueue] : [];
             if (currentOld <= 0 && (updatedQueue.length > 0 || currentNew > 0)) {
               if (updatedQueue.length > 0) {
                 const nextBatch = updatedQueue.shift()!;
@@ -532,7 +548,8 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
               quantity: currentOld,
               expiryDate,
               newStockQuantity: currentNew,
-              newStockExpiry: currentNew > 0 ? newStockExpiry : undefined
+              newStockExpiry: currentNew > 0 ? newStockExpiry : undefined,
+              newBatchQueue: updatedQueue
             };
           }
           return product;

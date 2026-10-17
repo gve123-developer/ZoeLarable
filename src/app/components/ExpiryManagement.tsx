@@ -100,24 +100,54 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
 
         try {
             let updatedPayload: any = { ...product };
+            const isFifo = product.dispensingMethod === 'FIFO' || product.category === 'Non-pharmaceutical';
 
             if (targetBatch === 'new') {
                 updatedPayload.newStockQuantity = 0;
                 updatedPayload.newStockExpiry = null;
+                updatedPayload.newBatchQueue = [];
             } else if (targetBatch === 'all') {
                 updatedPayload.quantity = 0;
+                updatedPayload.expiryDate = null;
+                updatedPayload.batchNumber = null;
                 updatedPayload.newStockQuantity = 0;
                 updatedPayload.newStockExpiry = null;
+                updatedPayload.newBatchQueue = [];
             } else {
                 // targetBatch === 'old'
-                const newQty = Number(product.newStockQuantity || 0);
-                if (newQty > 0 && !isDateExpired(product.newStockExpiry)) {
-                    updatedPayload.quantity = newQty;
-                    updatedPayload.expiryDate = product.newStockExpiry;
+                // The old batch was disposed!
+                const rawQueue = Array.isArray(product.newBatchQueue) ? [...product.newBatchQueue] : [];
+                // Only consider valid batches with positive quantity
+                const queue = rawQueue.filter(b => Number(b.quantity || 0) > 0);
+
+                if (queue.length > 0) {
+                    // ROTATE: Shift the earliest queued batch into Old
+                    const promoted = queue.shift()!;
+                    updatedPayload.quantity = Number(promoted.quantity);
+                    updatedPayload.expiryDate = isFifo ? null : (promoted.expiryDate || null);
+                    updatedPayload.batchNumber = promoted.batchNumber || null;
+
+                    // Remaining queue without the promoted batch
+                    updatedPayload.newBatchQueue = queue;
+                    updatedPayload.newStockQuantity = queue.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
+                    const remainingExps = queue.map(b => b.expiryDate).filter(Boolean) as string[];
+                    updatedPayload.newStockExpiry = (!isFifo && remainingExps.length > 0) ? [...remainingExps].sort()[0] : null;
+                } else if (Number(product.newStockQuantity || 0) > 0) {
+                    // Fallback for legacy single new stock fields
+                    updatedPayload.quantity = Number(product.newStockQuantity);
+                    updatedPayload.expiryDate = isFifo ? null : (product.newStockExpiry || null);
+                    updatedPayload.batchNumber = null;
+                    updatedPayload.newBatchQueue = [];
                     updatedPayload.newStockQuantity = 0;
                     updatedPayload.newStockExpiry = null;
                 } else {
+                    // No queued batches remain
                     updatedPayload.quantity = 0;
+                    updatedPayload.expiryDate = null;
+                    updatedPayload.batchNumber = null;
+                    updatedPayload.newBatchQueue = [];
+                    updatedPayload.newStockQuantity = 0;
+                    updatedPayload.newStockExpiry = null;
                 }
             }
 
@@ -156,6 +186,18 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
             speak([
                 `Loss Alert. We lost ${costLoss.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })} due to ${reason.toLowerCase()} of ${productName}.`
             ]);
+
+            // Re-fetch fresh products from backend to ensure 100% sync
+            try {
+                const freshRes = await fetch('/api/products.php');
+                const freshProducts = await freshRes.json();
+                if (Array.isArray(freshProducts)) {
+                    onProductsChange(freshProducts);
+                    return;
+                }
+            } catch (err) {
+                console.warn('Failed to re-fetch fresh products, falling back to local state:', err);
+            }
 
             const updatedProducts = products.map(p =>
                 p.id === product.id ? { ...p, ...updatedPayload } : p
