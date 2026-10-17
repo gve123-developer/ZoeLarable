@@ -100,7 +100,12 @@ export function UserManagement({ currentUser }: UserManagementProps) {
         setConfirmPassword('');
         setShowPassword(false);
         setShowConfirmPassword(false);
-        logAuditAction(currentUser.name, 'User Added', `Added new user: ${result.user.username}`);
+        const added = result.user || formData;
+        logAuditAction(
+          currentUser.name,
+          'User Added',
+          `Added new user: "${added.username}" | Full Name: ${added.name || 'N/A'} | Role: ${added.role || formData.role || 'Staff'} | Email: ${added.email || 'N/A'}`
+        );
         toast.success(result.message || 'User added successfully');
       } else {
         toast.error(result.message || 'Failed to add user to database');
@@ -161,7 +166,12 @@ export function UserManagement({ currentUser }: UserManagementProps) {
         setIsEditDialogOpen(false);
         setEditingUser(null);
         setFormData({});
-        logAuditAction(currentUser.name, 'User Updated', `Updated details for user: ${newLocalUser.username}`);
+        const passNote = formData.password ? ' | Password reset/changed' : '';
+        logAuditAction(
+          currentUser.name,
+          'User Updated',
+          `Updated user: "${newLocalUser.username}" | Full Name: ${newLocalUser.name || 'N/A'} | Role: ${newLocalUser.role || 'Staff'} | Email: ${newLocalUser.email || 'N/A'}${passNote}`
+        );
         toast.success('User updated successfully');
       } else {
         toast.error(result.message || 'Failed to update user');
@@ -208,7 +218,11 @@ export function UserManagement({ currentUser }: UserManagementProps) {
       if (res.ok && result.success) {
         const updatedUsers = users.filter(u => u.id !== userToDelete.id);
         saveUsers(updatedUsers);
-        logAuditAction(currentUser.name, 'User Deleted', `Deleted user: ${userToDelete.username}`);
+        logAuditAction(
+          currentUser.name,
+          'User Deleted',
+          `Deleted user: "${userToDelete.username}" | Full Name: ${userToDelete.name || 'N/A'} | Role: ${userToDelete.role || 'Staff'} | Email: ${userToDelete.email || 'N/A'}`
+        );
         toast.success('User deleted successfully');
         setIsDeleteDialogOpen(false);
         setUserToDelete(null);

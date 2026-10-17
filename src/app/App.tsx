@@ -69,6 +69,7 @@ export interface Transaction {
     itemId?: number;
     productId: string;
     productName: string;
+    sku?: string;
     quantity: number;
     price: number;
     cost: number;
@@ -79,6 +80,10 @@ export interface Transaction {
   cashier?: string;
   amountReceived?: number;
   change?: number;
+  tenderedAmount?: number;
+  changeAmount?: number;
+  discountType?: string;
+  discountAmount?: number;
   status?: string;
 }
 

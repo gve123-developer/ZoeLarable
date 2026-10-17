@@ -228,8 +228,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         // Save active user in localStorage
         localStorage.setItem('currentUser', JSON.stringify(result.user));
 
-        // ✅ Audit: log successful login
-        logAuditAction(result.user.name, 'Login', `User "${result.user.username}" logged in successfully.`);
+        // ✅ Audit: log successful login with role and status
+        const roleLabel = result.user.role ? ` (Role: ${result.user.role})` : '';
+        logAuditAction(result.user.name, 'Login', `User "${result.user.username}"${roleLabel} logged in successfully. Authenticated via secure portal.`);
 
         setTimeout(() => onLogin(result.user), 1000);
       } else {
@@ -241,13 +242,15 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         triggerShake();
 
         // ✅ Audit: log failed login
-        logAuditAction(username.trim() || 'Unknown', 'Login Failed', `Failed login attempt for username: "${username.trim()}". Attempt ${newAttempts} of ${MAX_ATTEMPTS}.`);
+        const safeUser = username.trim() || 'Unknown';
+        logAuditAction(safeUser, 'Login Failed', `Failed login attempt for username: "${safeUser}". Attempt ${newAttempts} of ${MAX_ATTEMPTS}. Status: Invalid credentials.`);
 
         if (newAttempts >= MAX_ATTEMPTS) {
           const until = Date.now() + LOCKOUT_SECONDS * 1000;
           setLockoutUntil(until);
           setLockoutCountdown(LOCKOUT_SECONDS);
           localStorage.setItem('loginLockoutUntil', until.toString());
+          logAuditAction(safeUser, 'Login Lockout', `Security lockout triggered for username: "${safeUser}". Exceeded maximum failed login attempts (${MAX_ATTEMPTS}/${MAX_ATTEMPTS}). Account locked for ${LOCKOUT_SECONDS} seconds.`);
           setErrorMsg(`Too many failed attempts. Account locked for ${LOCKOUT_SECONDS} seconds.`);
           toast.error('Account temporarily locked due to too many failed attempts.');
         } else {

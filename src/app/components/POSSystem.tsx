@@ -419,12 +419,15 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
 
       if (response.ok && data?.success) {
         // Create local transaction object for the UI summary
+        const actualPaid = paymentMethod === 'cash' ? receivedNum : totalAmount;
+        const actualChange = paymentMethod === 'cash' ? Math.max(0, receivedNum - totalAmount) : 0;
         const transaction: Transaction = {
           id: data.id.toString(),
           date: new Date().toISOString(),
           items: cart.map(item => ({
             productId: item.product.id,
             productName: item.product.name,
+            sku: item.product.sku || 'N/A',
             quantity: item.quantity,
             price: item.product.price,
             cost: item.product.cost,
@@ -432,8 +435,10 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
           total: totalAmount,
           paymentMethod,
           cashier: cashierName,
-          amountReceived: paymentMethod === 'cash' ? receivedNum : undefined,
-          change: paymentMethod === 'cash' ? (receivedNum - totalAmount) : undefined,
+          amountReceived: actualPaid,
+          change: actualChange,
+          tenderedAmount: actualPaid,
+          changeAmount: actualChange,
         };
 
         // Update inventory locally (App.tsx will refetch soon anyway, but this keeps UI snappy)
