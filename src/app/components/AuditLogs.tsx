@@ -98,11 +98,39 @@ function parseAuditLog(log: any): ParsedAuditDetail {
 
     // 1. POS Sale
     if (/Sale/i.test(action)) {
-        const saleId = text.match(/Sale\s*#?(\d+)/i)?.[1];
-        const total = text.match(/Total:\s*([₱P]?[\d,]+(?:\.\d+)?)/i)?.[1];
-        const paid = text.match(/Paid:\s*([₱P]?[\d,]+(?:\.\d+)?)/i)?.[1];
-        const change = text.match(/Change:\s*([₱P]?[\d,]+(?:\.\d+)?)/i)?.[1];
-        const method = text.match(/Method:\s*([\w\s-]+?)(?=[,\)]|$)/i)?.[1]?.trim();
+        const saleId = log?.saleId || text.match(/(?:Sale|Transaction)\s*#?(\d+)/i)?.[1];
+        
+        let total: string | undefined;
+        if (log?.totalAmount !== undefined && log?.totalAmount !== null && Number(log.totalAmount) > 0) {
+            total = `₱${Number(log.totalAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        } else {
+            const rawTotal = text.match(/Total:\s*([₱P]?[\d,]+(?:\.\d+)?)/i)?.[1];
+            if (rawTotal) {
+                total = rawTotal.startsWith('₱') ? rawTotal : `₱${rawTotal}`;
+            }
+        }
+
+        let paid: string | undefined;
+        if (log?.amountReceived !== undefined && log?.amountReceived !== null && Number(log.amountReceived) > 0) {
+            paid = `₱${Number(log.amountReceived).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        } else {
+            const rawPaid = text.match(/Paid:\s*([₱P]?[\d,]+(?:\.\d+)?)/i)?.[1];
+            if (rawPaid && rawPaid !== '₱0.00' && rawPaid !== 'P0.00' && rawPaid !== '0.00') {
+                paid = rawPaid.startsWith('₱') ? rawPaid : `₱${rawPaid}`;
+            }
+        }
+
+        let change: string | undefined;
+        if (log?.changeAmount !== undefined && log?.changeAmount !== null) {
+            change = `₱${Number(log.changeAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        } else {
+            const rawChange = text.match(/Change:\s*([₱P]?[\d,]+(?:\.\d+)?)/i)?.[1];
+            if (rawChange) {
+                change = rawChange.startsWith('₱') ? rawChange : `₱${rawChange}`;
+            }
+        }
+
+        const method = log?.paymentMethod || text.match(/Method:\s*([\w\s-]+?)(?=[,\)]|$)/i)?.[1]?.trim() || 'Cash';
         const discount = text.match(/Discount:\s*([^,\)]+)/i)?.[1]?.trim();
 
         let items: ParsedAuditDetail['items'] = [];
@@ -235,6 +263,7 @@ export function AuditLogs({ currentUser }: AuditLogsProps) {
     const [currentPage, setCurrentPage] = useState(1);
     const [selectedLog, setSelectedLog] = useState<any | null>(null);
     const [copiedChronicle, setCopiedChronicle] = useState(false);
+    const [liveTxMap, setLiveTxMap] = useState<Record<string, any>>({});
     const itemsPerPage = 15;
 
     const fetchLogs = async () => {
@@ -255,6 +284,28 @@ export function AuditLogs({ currentUser }: AuditLogsProps) {
         const interval = setInterval(fetchLogs, 5000);
         return () => clearInterval(interval);
     }, []);
+
+    // When an audit log is selected, ensure we have the live transaction payment details (paid & change)
+    useEffect(() => {
+        if (!selectedLog) return;
+        const text = String(selectedLog.details || '');
+        const m = text.match(/(?:Sale|Transaction)\s*#?(\d+)/i);
+        const saleId = selectedLog.saleId || (m ? m[1] : null);
+
+        if (saleId && !liveTxMap[saleId]) {
+            fetch('/api/transactions.php')
+                .then(r => r.json())
+                .then(txs => {
+                    if (Array.isArray(txs)) {
+                        const match = txs.find((t: any) => String(t.id) === String(saleId));
+                        if (match) {
+                            setLiveTxMap(prev => ({ ...prev, [saleId]: match }));
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
+    }, [selectedLog, liveTxMap]);
 
     // Reset to page 1 when filters change
     useEffect(() => {
@@ -794,74 +845,121 @@ export function AuditLogs({ currentUser }: AuditLogsProps) {
                                         </div>
 
                                         {/* Financial Summary Strip */}
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                            <div className="bg-white p-2.5 rounded-lg border border-emerald-100 shadow-2xs">
-                                                <span className="text-[10px] font-bold text-gray-500 uppercase block">Total Amount</span>
-                                                <span className="font-black text-gray-900 text-sm text-emerald-700">
-                                                    {parsedModalData.total || 'N/A'}
-                                                </span>
-                                            </div>
+                                        {(() => {
+                                            const saleId = parsedModalData.saleId;
+                                            const liveTx = saleId ? liveTxMap[saleId] : null;
 
-                                            <div className="bg-white p-2.5 rounded-lg border border-emerald-100 shadow-2xs">
-                                                <span className="text-[10px] font-bold text-gray-500 uppercase block">Pera na Nakuha (Paid)</span>
-                                                <span className="font-black text-gray-900 text-sm">
-                                                    {parsedModalData.paid || 'N/A'}
-                                                </span>
-                                            </div>
+                                            const displayTotal = (liveTx?.total !== undefined && liveTx.total !== null && Number(liveTx.total) > 0)
+                                                ? `₱${Number(liveTx.total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                                : (parsedModalData.total || 'N/A');
 
-                                            <div className="bg-white p-2.5 rounded-lg border border-emerald-100 shadow-2xs">
-                                                <span className="text-[10px] font-bold text-gray-500 uppercase block">Sukli (Change)</span>
-                                                <span className="font-black text-blue-700 text-sm">
-                                                    {parsedModalData.change || '₱0.00'}
-                                                </span>
-                                            </div>
+                                            let displayPaid = (liveTx?.amountReceived !== undefined && liveTx.amountReceived !== null && Number(liveTx.amountReceived) > 0)
+                                                ? `₱${Number(liveTx.amountReceived).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                                : (selectedLog?.amountReceived !== undefined && selectedLog.amountReceived !== null && Number(selectedLog.amountReceived) > 0
+                                                    ? `₱${Number(selectedLog.amountReceived).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                                    : (parsedModalData.paid && parsedModalData.paid !== '₱0.00' && parsedModalData.paid !== 'P0.00' && parsedModalData.paid !== '0.00'
+                                                        ? parsedModalData.paid
+                                                        : (displayTotal !== 'N/A' ? `${displayTotal} (Exact Amount)` : 'N/A')));
 
-                                            <div className="bg-white p-2.5 rounded-lg border border-emerald-100 shadow-2xs">
-                                                <span className="text-[10px] font-bold text-gray-500 uppercase block">Method / Type</span>
-                                                <span className="font-bold text-gray-800 text-xs uppercase">
-                                                    {parsedModalData.method || 'Cash'}
-                                                </span>
-                                                {parsedModalData.discount && (
-                                                    <span className="text-[9px] text-amber-700 font-semibold block truncate">
-                                                        {parsedModalData.discount}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
+                                            let displayChange = (liveTx?.change !== undefined && liveTx.change !== null)
+                                                ? `₱${Number(liveTx.change).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                                : (selectedLog?.changeAmount !== undefined && selectedLog.changeAmount !== null
+                                                    ? `₱${Number(selectedLog.changeAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                                    : (parsedModalData.change && parsedModalData.change !== '₱0.00'
+                                                        ? parsedModalData.change
+                                                        : '₱0.00'));
+
+                                            const displayMethod = (liveTx?.paymentMethod || parsedModalData.method || selectedLog?.paymentMethod || 'Cash').toUpperCase();
+
+                                            return (
+                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                                    <div className="bg-white p-2.5 rounded-lg border border-emerald-100 shadow-2xs">
+                                                        <span className="text-[10px] font-bold text-gray-500 uppercase block">Total Amount</span>
+                                                        <span className="font-black text-gray-900 text-sm text-emerald-700">
+                                                            {displayTotal}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="bg-white p-2.5 rounded-lg border border-emerald-100 shadow-2xs">
+                                                        <span className="text-[10px] font-bold text-gray-500 uppercase block">Pera na Nakuha (Paid)</span>
+                                                        <span className="font-black text-gray-900 text-sm">
+                                                            {displayPaid}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="bg-white p-2.5 rounded-lg border border-emerald-100 shadow-2xs">
+                                                        <span className="text-[10px] font-bold text-gray-500 uppercase block">Sukli (Change)</span>
+                                                        <span className="font-black text-blue-700 text-sm">
+                                                            {displayChange}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="bg-white p-2.5 rounded-lg border border-emerald-100 shadow-2xs">
+                                                        <span className="text-[10px] font-bold text-gray-500 uppercase block">Method / Type</span>
+                                                        <span className="font-bold text-gray-800 text-xs uppercase">
+                                                            {displayMethod}
+                                                        </span>
+                                                        {parsedModalData.discount && (
+                                                            <span className="text-[9px] text-amber-700 font-semibold block truncate">
+                                                                {parsedModalData.discount}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
 
                                         {/* Purchased Items List */}
-                                        {parsedModalData.items && parsedModalData.items.length > 0 && (
-                                            <div className="space-y-1.5 mt-2">
-                                                <span className="text-[11px] font-black uppercase text-emerald-950 tracking-wider block">
-                                                    Listahan ng mga Binili ({parsedModalData.items.length} item{parsedModalData.items.length !== 1 ? 's' : ''})
-                                                </span>
-                                                <div className="bg-white rounded-lg border border-emerald-100 divide-y divide-gray-100 overflow-hidden shadow-2xs">
-                                                    {parsedModalData.items.map((item, idx) => (
-                                                        <div key={idx} className="p-2.5 flex items-center justify-between text-xs hover:bg-gray-50/50">
-                                                            <div className="flex items-center gap-2 max-w-[65%]">
-                                                                <span className="size-5 rounded-full bg-emerald-100 text-[#54b768] font-bold text-[10px] flex items-center justify-center shrink-0">
-                                                                    {idx + 1}
-                                                                </span>
-                                                                <div className="truncate">
-                                                                    <p className="font-bold text-gray-900 truncate">{item.name}</p>
-                                                                    {item.sku && (
-                                                                        <p className="text-[10px] text-gray-400 font-mono">SKU: {item.sku}</p>
-                                                                    )}
+                                        {(() => {
+                                            const saleId = parsedModalData.saleId;
+                                            const liveTx = saleId ? liveTxMap[saleId] : null;
+                                            const effectiveItems = (parsedModalData.items && parsedModalData.items.length > 0)
+                                                ? parsedModalData.items
+                                                : (liveTx?.items && Array.isArray(liveTx.items)
+                                                    ? liveTx.items.map((i: any) => ({
+                                                        name: i.productName || i.name || 'Product',
+                                                        sku: i.sku || null,
+                                                        qty: Number(i.quantity || 1),
+                                                        unitPrice: i.price ? `₱${Number(i.price).toFixed(2)}` : null,
+                                                        total: i.price && i.quantity ? `₱${(Number(i.price) * Number(i.quantity)).toFixed(2)}` : null
+                                                    }))
+                                                    : []);
+
+                                            if (effectiveItems.length === 0) return null;
+
+                                            return (
+                                                <div className="space-y-1.5 mt-2">
+                                                    <span className="text-[11px] font-black uppercase text-emerald-950 tracking-wider block">
+                                                        Listahan ng mga Binili ({effectiveItems.length} item{effectiveItems.length !== 1 ? 's' : ''})
+                                                    </span>
+                                                    <div className="bg-white rounded-lg border border-emerald-100 divide-y divide-gray-100 overflow-hidden shadow-2xs">
+                                                        {effectiveItems.map((item: any, idx: number) => (
+                                                            <div key={idx} className="p-2.5 flex items-center justify-between text-xs hover:bg-gray-50/50">
+                                                                <div className="flex items-center gap-2 max-w-[65%]">
+                                                                    <span className="size-5 rounded-full bg-emerald-100 text-[#54b768] font-bold text-[10px] flex items-center justify-center shrink-0">
+                                                                        {idx + 1}
+                                                                    </span>
+                                                                    <div className="truncate">
+                                                                        <p className="font-bold text-gray-900 truncate">{item.name}</p>
+                                                                        {item.sku && (
+                                                                            <p className="text-[10px] text-gray-400 font-mono">SKU: {item.sku}</p>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right whitespace-nowrap">
+                                                                    <span className="font-bold text-emerald-700 text-xs block">
+                                                                        {item.total || (item.unitPrice ? `${item.unitPrice}` : '')}
+                                                                    </span>
+                                                                    <span className="text-[10px] text-gray-500 font-medium">
+                                                                        {item.qty} pcs {item.unitPrice ? `@ ${item.unitPrice}` : ''}
+                                                                    </span>
                                                                 </div>
                                                             </div>
-                                                            <div className="text-right whitespace-nowrap">
-                                                                <span className="font-bold text-emerald-700 text-xs block">
-                                                                    {item.total || (item.unitPrice ? `${item.unitPrice}` : '')}
-                                                                </span>
-                                                                <span className="text-[10px] text-gray-500 font-medium">
-                                                                    {item.qty} pcs {item.unitPrice ? `@ ${item.unitPrice}` : ''}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        )}
+                                            );
+                                        })()}
                                     </div>
                                 )}
 
