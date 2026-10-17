@@ -7,16 +7,18 @@ header("Content-Type: application/json; charset=UTF-8");
 
 include '../includes/db_connect.php';
 
-// Ensure status column exists on transaction_items and clean up redundant logs and test transactions 166 & 167
-try {
-    $conn->exec("ALTER TABLE transaction_items ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'completed'");
-    $conn->exec("DELETE FROM audit_logs WHERE action = 'Partial Void' AND details LIKE '%Refunded: ₱0.00%'");
-    $conn->exec("DELETE FROM transaction_items WHERE transaction_id IN (166, 167)");
-    $conn->exec("DELETE FROM transactions WHERE id IN (166, 167)");
-    $conn->exec("DELETE FROM audit_logs WHERE details LIKE '%166%' OR details LIKE '%167%'");
-} catch (Throwable $ignored) {}
-
 $method = $_SERVER['REQUEST_METHOD'];
+
+// Ensure status column exists on transaction_items and clean up redundant logs (only on mutations, skipped on GET for performance)
+if ($method !== 'GET') {
+    try {
+        $conn->exec("ALTER TABLE transaction_items ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'completed'");
+        $conn->exec("DELETE FROM audit_logs WHERE action = 'Partial Void' AND details LIKE '%Refunded: ₱0.00%'");
+        $conn->exec("DELETE FROM transaction_items WHERE transaction_id IN (166, 167)");
+        $conn->exec("DELETE FROM transactions WHERE id IN (166, 167)");
+        $conn->exec("DELETE FROM audit_logs WHERE details LIKE '%166%' OR details LIKE '%167%'");
+    } catch (Throwable $ignored) {}
+}
 
 if ($method === 'OPTIONS') {
     http_response_code(200);
@@ -65,49 +67,54 @@ if ($method === 'GET') {
              ORDER BY t.transaction_date DESC"
         );
 
+        $transactionsRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($transactionsRows)) {
+            echo json_encode([]);
+            exit();
+        }
+
+        $transactionIds = array_column($transactionsRows, 'id');
+        $inClause = implode(',', array_map('intval', $transactionIds));
+
+        $itemStmt = $conn->query(
+            "SELECT
+                i.transaction_id,
+                i.id AS item_id,
+                i.product_id,
+                p.name AS product_name,
+                i.quantity,
+                i.price_at_sale,
+                i.cost_at_sale,
+                COALESCE(i.status, 'completed') AS status
+             FROM transaction_items i
+             LEFT JOIN products p
+                ON i.product_id = p.id
+             WHERE i.transaction_id IN ($inClause)
+             ORDER BY i.id"
+        );
+
+        $itemsByTx = [];
+        while ($item = $itemStmt->fetch(PDO::FETCH_ASSOC)) {
+            $txId = (string)$item['transaction_id'];
+            $itemsByTx[$txId][] = [
+                'itemId' => (int)$item['item_id'],
+                'productId' => (string)$item['product_id'],
+                'productName' => $item['product_name'] ?? 'Unknown Product',
+                'quantity' => (int)$item['quantity'],
+                'price' => (float)$item['price_at_sale'],
+                'cost' => (float)$item['cost_at_sale'],
+                'status' => $item['status'] ?? 'completed'
+            ];
+        }
+
         $transactions = [];
-
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-
-            $itemStmt = $conn->prepare(
-                "SELECT
-                    i.id AS item_id,
-                    i.product_id,
-                    p.name AS product_name,
-                    i.quantity,
-                    i.price_at_sale,
-                    i.cost_at_sale,
-                    COALESCE(i.status, 'completed') AS status
-                 FROM transaction_items i
-                 LEFT JOIN products p
-                    ON i.product_id = p.id
-                 WHERE i.transaction_id = :transaction_id
-                 ORDER BY i.id"
-            );
-
-            $itemStmt->execute([
-                ':transaction_id' => $row['id']
-            ]);
-
-            $items = [];
-
-            while ($item = $itemStmt->fetch(PDO::FETCH_ASSOC)) {
-
-                $items[] = [
-                    'itemId' => (int)$item['item_id'],
-                    'productId' => (string)$item['product_id'],
-                    'productName' => $item['product_name'] ?? 'Unknown Product',
-                    'quantity' => (int)$item['quantity'],
-                    'price' => (float)$item['price_at_sale'],
-                    'cost' => (float)$item['cost_at_sale'],
-                    'status' => $item['status'] ?? 'completed'
-                ];
-            }
-
+        foreach ($transactionsRows as $row) {
+            $txId = (string)$row['id'];
             $transactions[] = [
-                'id' => (string)$row['id'],
+                'id' => $txId,
                 'date' => str_replace(' ', 'T', $row['date']),
-                'items' => $items,
+                'items' => $itemsByTx[$txId] ?? [],
                 'total' => (float)$row['total'],
                 'paymentMethod' => $row['payment_method'],
                 'cashier' => $row['cashier'] ?? 'Zoe Owner',
