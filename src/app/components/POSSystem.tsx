@@ -343,7 +343,10 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
     const item = cart.find(i => i.product.id === productId);
     if (!item) return;
 
-    if (newQuantity < 0) return;
+    if (newQuantity <= 0) {
+      removeFromCart(productId);
+      return;
+    }
 
     const { totalSellable } = getSellableStock(item.product);
 
@@ -352,10 +355,39 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
       return;
     }
 
-    setCart([
-      { ...item, quantity: newQuantity },
-      ...cart.filter(i => i.product.id !== productId)
-    ]);
+    setCart(cart.map(i => i.product.id === productId ? { ...i, quantity: newQuantity } : i));
+  };
+
+  const handleQuantityInputChange = (productId: string, rawVal: string) => {
+    if (rawVal === '') {
+      setCart(cart.map(i => i.product.id === productId ? { ...i, quantity: '' as any } : i));
+      return;
+    }
+
+    const parsed = parseInt(rawVal, 10);
+    if (isNaN(parsed)) return;
+
+    const item = cart.find(i => i.product.id === productId);
+    if (!item) return;
+
+    const { totalSellable } = getSellableStock(item.product);
+
+    if (parsed > totalSellable) {
+      toast.error(`Cannot exceed ${totalSellable} non-expired units available`);
+      setCart(cart.map(i => i.product.id === productId ? { ...i, quantity: totalSellable } : i));
+      return;
+    }
+
+    setCart(cart.map(i => i.product.id === productId ? { ...i, quantity: Math.max(0, parsed) } : i));
+  };
+
+  const handleQuantityInputBlur = (productId: string) => {
+    const item = cart.find(i => i.product.id === productId);
+    if (!item) return;
+    const qty = Number(item.quantity);
+    if (isNaN(qty) || qty <= 0) {
+      setCart(cart.map(i => i.product.id === productId ? { ...i, quantity: 1 } : i));
+    }
   };
 
   const removeFromCart = (productId: string) => {
@@ -363,7 +395,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
   };
 
   const calculateTotal = () => {
-    return cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+    return cart.reduce((sum, item) => sum + (item.product.price * (Number(item.quantity) || 0)), 0);
   };
 
   const calculateChange = () => {
@@ -389,7 +421,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
     // Prepare clean JSON payload for API
     const cartData = cart.map(item => ({
       id: parseInt(item.product.id, 10) || item.product.id,
-      qty: item.quantity,
+      qty: Math.max(1, Number(item.quantity) || 1),
       price: item.product.price
     }));
 
@@ -429,7 +461,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
             productId: item.product.id,
             productName: item.product.name,
             sku: item.product.sku || 'N/A',
-            quantity: item.quantity,
+            quantity: Math.max(1, Number(item.quantity) || 1),
             price: item.product.price,
             cost: item.product.cost,
           })),
@@ -446,7 +478,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
         const updatedProducts = products.map(product => {
           const cartItem = cart.find(item => item.product.id === product.id);
           if (cartItem) {
-            let totalToDeduct = cartItem.quantity;
+            let totalToDeduct = Math.max(1, Number(cartItem.quantity) || 1);
             let currentOld = product.quantity;
             let currentNew = product.newStockQuantity || 0;
             let expiryDate = product.expiryDate;
@@ -988,7 +1020,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="font-extrabold text-sm text-gray-900">
-                              ₱{(item.product.price * item.quantity).toFixed(2)}
+                              ₱{(item.product.price * (Number(item.quantity) || 0)).toFixed(2)}
                             </span>
                             <button
                               onClick={() => removeFromCart(item.product.id)}
@@ -1000,23 +1032,38 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                           </div>
                         </div>
 
-                        {/* Stepper */}
+                        {/* Stepper with Editable Quantity Input */}
                         <div className="flex items-center justify-between">
-                          <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50/80 p-0.5">
+                          <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50/80 p-0.5 shadow-2xs">
                             <button
                               type="button"
-                              onClick={() => updateCartQuantity(item.product.id, Math.max(0, item.quantity - 1))}
-                              className="size-7 flex items-center justify-center rounded-md bg-white text-gray-700 hover:bg-gray-100 shadow-2xs text-sm font-bold"
+                              onClick={() => updateCartQuantity(item.product.id, Math.max(0, (Number(item.quantity) || 1) - 1))}
+                              className="size-7 flex items-center justify-center rounded-md bg-white text-gray-700 hover:bg-gray-100 hover:text-gray-900 active:scale-95 shadow-2xs text-sm font-bold transition-all cursor-pointer"
+                              title="Decrease quantity (-)"
                             >
                               <Minus className="size-3" />
                             </button>
-                            <span className="w-9 text-center font-extrabold text-xs text-gray-900">
-                              {item.quantity}
-                            </span>
+                            <input
+                              type="number"
+                              min="1"
+                              max={getSellableStock(item.product).totalSellable}
+                              value={item.quantity !== undefined && item.quantity !== null ? item.quantity : ''}
+                              onChange={(e) => handleQuantityInputChange(item.product.id, e.target.value)}
+                              onBlur={() => handleQuantityInputBlur(item.product.id)}
+                              onFocus={(e) => e.target.select()}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              className="w-12 h-7 text-center font-black text-xs text-gray-900 bg-transparent border-none outline-none focus:bg-white focus:ring-1 focus:ring-emerald-500 rounded px-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-all cursor-text"
+                              title="Type quantity directly"
+                            />
                             <button
                               type="button"
-                              onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
-                              className="size-7 flex items-center justify-center rounded-md bg-white text-gray-700 hover:bg-gray-100 shadow-2xs text-sm font-bold"
+                              onClick={() => updateCartQuantity(item.product.id, (Number(item.quantity) || 0) + 1)}
+                              className="size-7 flex items-center justify-center rounded-md bg-white text-gray-700 hover:bg-gray-100 hover:text-gray-900 active:scale-95 shadow-2xs text-sm font-bold transition-all cursor-pointer"
+                              title="Increase quantity (+)"
                             >
                               <Plus className="size-3" />
                             </button>
