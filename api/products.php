@@ -55,14 +55,16 @@ function get_smart_supplier($name, $category = '') {
     return 'UNILAB';
 }
 
-function align_product_batches_fefo(&$qty, &$expiry, &$batchNumber, &$queue, $supplier, $createdDateCode, $createdDateFull) {
+function align_product_batches(&$qty, &$expiry, &$batchNumber, &$queue, $supplier, $createdDateCode, $createdDateFull, $dispensingMethod = 'FEFO') {
+    $isFifo = ($dispensingMethod === 'FIFO');
+
     $allBatches = [];
     if ($qty > 0) {
         $allBatches[] = [
             'batchNumber' => $batchNumber ?: ($createdDateCode . '-' . $supplier),
             'supplier' => $supplier,
             'quantity' => (int)$qty,
-            'expiryDate' => $expiry,
+            'expiryDate' => $isFifo ? null : $expiry,
             'arrivalDate' => $createdDateFull
         ];
     }
@@ -74,7 +76,7 @@ function align_product_batches_fefo(&$qty, &$expiry, &$batchNumber, &$queue, $su
                     'batchNumber' => $item['batchNumber'] ?? ($createdDateCode . '-' . $supplier),
                     'supplier' => $item['supplier'] ?? $supplier,
                     'quantity' => $iqty,
-                    'expiryDate' => !empty($item['expiryDate']) ? $item['expiryDate'] : null,
+                    'expiryDate' => $isFifo ? null : (!empty($item['expiryDate']) ? $item['expiryDate'] : null),
                     'arrivalDate' => $item['arrivalDate'] ?? $createdDateFull
                 ];
             }
@@ -90,23 +92,58 @@ function align_product_batches_fefo(&$qty, &$expiry, &$batchNumber, &$queue, $su
         return $changed;
     }
 
-    // Sort strictly by FEFO: Earliest expiry date first
-    usort($allBatches, function($a, $b) {
-        $expA = !empty($a['expiryDate']) ? $a['expiryDate'] : '9999-12-31';
-        $expB = !empty($b['expiryDate']) ? $b['expiryDate'] : '9999-12-31';
-        if ($expA !== $expB) {
-            return strcmp($expA, $expB);
-        }
-        $arrA = !empty($a['arrivalDate']) ? $a['arrivalDate'] : '';
-        $arrB = !empty($b['arrivalDate']) ? $b['arrivalDate'] : '';
-        return strcmp($arrA, $arrB);
-    });
+    // Merge batches with SAME BATCH NUMBER AND SAME EXPIRATION DATE (or FIFO with same batch number)
+    $mergedBatches = [];
+    foreach ($allBatches as $b) {
+        $bNum = strtoupper(trim($b['batchNumber'] ?? ''));
+        $bExp = $b['expiryDate'] ?? null;
+        
+        $found = false;
+        foreach ($mergedBatches as &$m) {
+            $mNum = strtoupper(trim($m['batchNumber'] ?? ''));
+            $mExp = $m['expiryDate'] ?? null;
 
-    $primary = array_shift($allBatches);
+            if ($bNum === $mNum) {
+                if ($isFifo || ($bExp === $mExp)) {
+                    $m['quantity'] += (int)$b['quantity'];
+                    $found = true;
+                    break;
+                }
+            }
+        }
+        unset($m);
+
+        if (!$found) {
+            $mergedBatches[] = $b;
+        }
+    }
+
+    if ($isFifo) {
+        // FIFO order: Earliest arrival date first
+        usort($mergedBatches, function($a, $b) {
+            $arrA = !empty($a['arrivalDate']) ? $a['arrivalDate'] : '';
+            $arrB = !empty($b['arrivalDate']) ? $b['arrivalDate'] : '';
+            return strcmp($arrA, $arrB);
+        });
+    } else {
+        // FEFO order: Earliest expiry date first
+        usort($mergedBatches, function($a, $b) {
+            $expA = !empty($a['expiryDate']) ? $a['expiryDate'] : '9999-12-31';
+            $expB = !empty($b['expiryDate']) ? $b['expiryDate'] : '9999-12-31';
+            if ($expA !== $expB) {
+                return strcmp($expA, $expB);
+            }
+            $arrA = !empty($a['arrivalDate']) ? $a['arrivalDate'] : '';
+            $arrB = !empty($b['arrivalDate']) ? $b['arrivalDate'] : '';
+            return strcmp($arrA, $arrB);
+        });
+    }
+
+    $primary = array_shift($mergedBatches);
     $newQty = (int)$primary['quantity'];
-    $newExpiry = $primary['expiryDate'];
+    $newExpiry = $isFifo ? null : ($primary['expiryDate'] ?? null);
     $newBatch = $primary['batchNumber'];
-    $newQueue = array_values($allBatches);
+    $newQueue = array_values($mergedBatches);
 
     $changed = ($newQty !== $qty) || ($newExpiry !== $expiry) || ($newBatch !== $batchNumber) || (json_encode($newQueue) !== json_encode($queue));
 
@@ -118,6 +155,11 @@ function align_product_batches_fefo(&$qty, &$expiry, &$batchNumber, &$queue, $su
     return $changed;
 }
 
+// Backward compatibility alias
+function align_product_batches_fefo(&$qty, &$expiry, &$batchNumber, &$queue, $supplier, $createdDateCode, $createdDateFull) {
+    return align_product_batches($qty, $expiry, $batchNumber, $queue, $supplier, $createdDateCode, $createdDateFull, 'FEFO');
+}
+
 // GET: Fetch all products
 if ($method === 'GET') {
     try {
@@ -125,8 +167,12 @@ if ($method === 'GET') {
         try {
             $conn->exec("ALTER TABLE products ADD COLUMN IF NOT EXISTS batch_number VARCHAR(100)");
             $conn->exec("ALTER TABLE products ADD COLUMN IF NOT EXISTS new_batch_queue TEXT DEFAULT '[]'");
+            $conn->exec("ALTER TABLE products ADD COLUMN IF NOT EXISTS dispensing_method VARCHAR(10) DEFAULT 'FEFO'");
+            $conn->exec("ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT");
             $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS batch_number VARCHAR(100)");
             $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS new_batch_queue TEXT DEFAULT '[]'");
+            $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS dispensing_method VARCHAR(10) DEFAULT 'FEFO'");
+            $conn->exec("ALTER TABLE deleted_products ADD COLUMN IF NOT EXISTS image_url TEXT");
             $conn->exec("UPDATE products SET name = TRIM(REPLACE(name, '*', '')) WHERE name LIKE '%*%'");
             $conn->exec("UPDATE deleted_products SET name = TRIM(REPLACE(name, '*', '')) WHERE name LIKE '%*%'");
         } catch (Throwable $ignored) {}
@@ -146,6 +192,8 @@ if ($method === 'GET') {
                 p.new_stock_expiry,
                 p.batch_number,
                 p.new_batch_queue,
+                p.dispensing_method,
+                p.image_url,
                 p.created_at,
                 c.name AS category
             FROM products p
@@ -223,17 +271,27 @@ if ($method === 'GET') {
                 } catch (Throwable $e) {}
             }
 
-            // Strict FEFO alignment: Earliest expiring batch MUST be the Old Batch (active in POS)
+            $dispensingMethod = $row['dispensing_method'] ?? null;
+            if (empty($dispensingMethod)) {
+                $dispensingMethod = (strcasecmp($cat, 'Non-pharmaceutical') === 0 || str_starts_with($row['sku'], 'NPH-')) ? 'FIFO' : 'FEFO';
+            }
+            $imageUrl = $row['image_url'] ?? null;
+
+            // Alignment: FEFO (earliest expiry) or FIFO (no expiration, arrival order)
             $qty = (int)$row['quantity'];
             $expiry = $row['expiry_date'];
-            $wasAligned = align_product_batches_fefo($qty, $expiry, $batchNumber, $queue, $supplier, $createdDateCode, $createdDateFull);
+            $wasAligned = align_product_batches($qty, $expiry, $batchNumber, $queue, $supplier, $createdDateCode, $createdDateFull, $dispensingMethod);
             $newQty = array_sum(array_column($queue, 'quantity'));
             $expList = array_filter(array_column($queue, 'expiryDate'));
-            $newExpiry = !empty($expList) ? min($expList) : null;
+            $newExpiry = (!empty($expList) && $dispensingMethod !== 'FIFO') ? min($expList) : null;
+            if ($dispensingMethod === 'FIFO') {
+                $expiry = null;
+                $newExpiry = null;
+            }
 
             if ($wasAligned) {
                 try {
-                    $conn->prepare("UPDATE products SET quantity = :q, expiry_date = :exp, batch_number = :bn, new_stock_quantity = :nsq, new_stock_expiry = :nse, new_batch_queue = :nbq WHERE id = :id")
+                    $conn->prepare("UPDATE products SET quantity = :q, expiry_date = :exp, batch_number = :bn, new_stock_quantity = :nsq, new_stock_expiry = :nse, new_batch_queue = :nbq, dispensing_method = :dm WHERE id = :id")
                          ->execute([
                              ':q' => $qty,
                              ':exp' => $expiry,
@@ -241,6 +299,7 @@ if ($method === 'GET') {
                              ':nsq' => $newQty,
                              ':nse' => $newExpiry,
                              ':nbq' => json_encode($queue),
+                             ':dm' => $dispensingMethod,
                              ':id' => $row['id']
                          ]);
                 } catch (Throwable $e) {}
@@ -258,9 +317,11 @@ if ($method === 'GET') {
                 'reorderLevel' => (int)$row['reorder_level'],
                 'expiryDate' => $expiry,
                 'newStockQuantity' => $newQty,
-                'newStockExpiry' => $row['new_stock_expiry'],
+                'newStockExpiry' => $newExpiry,
                 'batchNumber' => $batchNumber,
                 'newBatchQueue' => $queue,
+                'dispensingMethod' => $dispensingMethod,
+                'imageUrl' => $imageUrl,
                 'createdAt' => $row['created_at'] ?? null
             ];
         }
@@ -355,6 +416,17 @@ elseif ($method === 'POST') {
             );
         }
 
+        $dispensing_method = trim($data['dispensingMethod'] ?? '');
+        if (empty($dispensing_method)) {
+            $dispensing_method = (strcasecmp($category_name, 'Non-pharmaceutical') === 0 || str_starts_with($sku, 'NPH-')) ? 'FIFO' : 'FEFO';
+        }
+        $image_url = !empty($data['imageUrl']) ? trim($data['imageUrl']) : null;
+
+        if ($dispensing_method === 'FIFO') {
+            $expiry = null;
+            $nb_expiry = null;
+        }
+
         $supplier = get_smart_supplier($name, $category_name);
         $batch_number = trim($data['batchNumber'] ?? '');
         if ($batch_number === '' || strpos($batch_number, '20261014-') === 0) {
@@ -374,11 +446,84 @@ elseif ($method === 'POST') {
                     'batchNumber' => $nb_arr . '-' . $supplier,
                     'supplier' => $supplier,
                     'quantity' => $nb_qty,
-                    'expiryDate' => $nb_expiry,
+                    'expiryDate' => ($dispensing_method === 'FIFO') ? null : $nb_expiry,
                     'arrivalDate' => $nb_arr_date
                 ]
             ];
         }
+
+        // If product with same SKU already exists, merge/restock it rather than failing
+        $checkStmt = $conn->prepare("SELECT id, quantity, expiry_date, batch_number, new_batch_queue, dispensing_method FROM products WHERE sku = :sku LIMIT 1");
+        $checkStmt->execute([':sku' => $sku]);
+        $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing) {
+            $existId = $existing['id'];
+            $existQty = (int)$existing['quantity'];
+            $existExp = $existing['expiry_date'];
+            $existBn = $existing['batch_number'];
+            $existQueue = json_decode($existing['new_batch_queue'] ?: '[]', true) ?: [];
+            $existDm = $existing['dispensing_method'] ?: $dispensing_method;
+
+            if ($qty > 0) {
+                $existQueue[] = [
+                    'batchNumber' => $batch_number,
+                    'supplier' => $supplier,
+                    'quantity' => $qty,
+                    'expiryDate' => ($existDm === 'FIFO') ? null : $expiry,
+                    'arrivalDate' => date('Y-m-d')
+                ];
+            }
+            if (!empty($new_batch_queue)) {
+                foreach ($new_batch_queue as $nbItem) {
+                    if ($existDm === 'FIFO') $nbItem['expiryDate'] = null;
+                    $existQueue[] = $nbItem;
+                }
+            }
+
+            align_product_batches($existQty, $existExp, $existBn, $existQueue, $supplier, date('Ymd'), date('Y-m-d'), $existDm);
+            $nsq = array_sum(array_column($existQueue, 'quantity'));
+            $nseList = array_filter(array_column($existQueue, 'expiryDate'));
+            $nse = (!empty($nseList) && $existDm !== 'FIFO') ? min($nseList) : null;
+
+            $updateStmt = $conn->prepare("UPDATE products SET 
+                quantity = :q, 
+                expiry_date = :exp, 
+                batch_number = :bn, 
+                new_stock_quantity = :nsq, 
+                new_stock_expiry = :nse, 
+                new_batch_queue = :nbq,
+                image_url = COALESCE(:img, image_url),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id");
+            $updateStmt->execute([
+                ':q' => $existQty,
+                ':exp' => $existExp,
+                ':bn' => $existBn,
+                ':nsq' => $nsq,
+                ':nse' => $nse,
+                ':nbq' => json_encode($existQueue),
+                ':img' => $image_url,
+                ':id' => $existId
+            ]);
+
+            include_once '../includes/audit_logger.php';
+            $user = $_SERVER['HTTP_X_USER_NAME'] ?? 'Admin';
+            log_action(
+                $conn,
+                $user,
+                'Inventory Add',
+                "Restocked existing product: $name [SKU: $sku] with Batch $batch_number (+$qty pcs) | Active Old Batch: $existBn ($existQty pcs) | Queued Stock: $nsq pcs"
+            );
+
+            echo json_encode([
+                'success' => true,
+                'id' => (string)$existId,
+                'message' => 'Restocked existing product with incoming batch'
+            ]);
+            exit;
+        }
+
         $nb_json = json_encode($new_batch_queue);
 
         $stmt = $conn->prepare(
@@ -396,7 +541,9 @@ elseif ($method === 'POST') {
                 new_stock_quantity,
                 new_stock_expiry,
                 batch_number,
-                new_batch_queue
+                new_batch_queue,
+                dispensing_method,
+                image_url
             )
             VALUES
             (
@@ -412,7 +559,9 @@ elseif ($method === 'POST') {
                 :new_stock_quantity,
                 :new_stock_expiry,
                 :batch_number,
-                :new_batch_queue
+                :new_batch_queue,
+                :dispensing_method,
+                :image_url
             )
             RETURNING id"
         );
@@ -430,7 +579,9 @@ elseif ($method === 'POST') {
             ':new_stock_quantity' => $nb_qty,
             ':new_stock_expiry' => $nb_expiry,
             ':batch_number' => $batch_number,
-            ':new_batch_queue' => $nb_json
+            ':new_batch_queue' => $nb_json,
+            ':dispensing_method' => $dispensing_method,
+            ':image_url' => $image_url
         ]);
 
         $new_id = $stmt->fetchColumn();
@@ -610,11 +761,21 @@ elseif ($method === 'PUT') {
             }
         }
 
-        // Strict FEFO alignment: Earliest expiring batch MUST be the Old Batch (active selling batch)
-        align_product_batches_fefo($qty, $expiry, $batch_number, $new_batch_queue, $supplier, date('Ymd'), date('Y-m-d'));
+        $dispensing_method = trim($data['dispensingMethod'] ?? '');
+        if (empty($dispensing_method)) {
+            $dispensing_method = (strcasecmp($category_name, 'Non-pharmaceutical') === 0 || str_starts_with($sku, 'NPH-')) ? 'FIFO' : 'FEFO';
+        }
+        $image_url = isset($data['imageUrl']) ? (trim($data['imageUrl']) ?: null) : null;
+
+        // FEFO (earliest expiry) vs FIFO (no expiration) alignment
+        align_product_batches($qty, $expiry, $batch_number, $new_batch_queue, $supplier, date('Ymd'), date('Y-m-d'), $dispensing_method);
         $nb_qty = array_sum(array_column($new_batch_queue, 'quantity'));
         $expList = array_filter(array_column($new_batch_queue, 'expiryDate'));
-        $nb_expiry = !empty($expList) ? min($expList) : null;
+        $nb_expiry = (!empty($expList) && $dispensing_method !== 'FIFO') ? min($expList) : null;
+        if ($dispensing_method === 'FIFO') {
+            $expiry = null;
+            $nb_expiry = null;
+        }
         $nb_json = json_encode($new_batch_queue);
 
         $stmt = $conn->prepare(
@@ -633,6 +794,8 @@ elseif ($method === 'PUT') {
                 new_stock_expiry = :new_stock_expiry,
                 batch_number = :batch_number,
                 new_batch_queue = :new_batch_queue,
+                dispensing_method = :dispensing_method,
+                image_url = COALESCE(:image_url, image_url),
                 updated_at = CURRENT_TIMESTAMP
              WHERE id = :id"
         );
@@ -651,6 +814,8 @@ elseif ($method === 'PUT') {
             ':new_stock_expiry' => $nb_expiry,
             ':batch_number' => $batch_number,
             ':new_batch_queue' => $nb_json,
+            ':dispensing_method' => $dispensing_method,
+            ':image_url' => $image_url,
             ':id' => $id
         ]);
 

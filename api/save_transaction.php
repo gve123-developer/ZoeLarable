@@ -200,6 +200,7 @@ try {
             new_stock_expiry,
             batch_number,
             new_batch_queue,
+            dispensing_method,
             cost
          FROM products
          WHERE id = :id
@@ -306,11 +307,14 @@ try {
             $newBatchQueue = [];
         }
 
-        // Determine which batches are expired (strict check against current date)
+        $dispensingMethod = $product['dispensing_method'] ?? 'FEFO';
+        $isFIFO = ($dispensingMethod === 'FIFO');
+
+        // Determine which batches are expired (strict check against current date for FEFO items only)
         $todayTime = strtotime(date('Y-m-d'));
 
         $oldExpired = false;
-        if (!empty($expiryDate)) {
+        if (!$isFIFO && !empty($expiryDate)) {
             $oldTime = strtotime($expiryDate);
             if ($oldTime !== false && $oldTime < $todayTime) {
                 $oldExpired = true;
@@ -318,7 +322,7 @@ try {
         }
 
         $newExpired = false;
-        if (!empty($newStockExpiry)) {
+        if (!$isFIFO && !empty($newStockExpiry)) {
             $newTime = strtotime($newStockExpiry);
             if ($newTime !== false && $newTime < $todayTime) {
                 $newExpired = true;
@@ -461,11 +465,10 @@ try {
             $newBatchQueue = [];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Update product
-        |--------------------------------------------------------------------------
-        */
+        if ($isFIFO) {
+            $expiryDate = null;
+            $newStockExpiry = null;
+        }
 
         $expiryDate = !empty($expiryDate) ? $expiryDate : null;
         $newStockExpiry = !empty($newStockExpiry) ? $newStockExpiry : null;

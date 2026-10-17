@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/app/components/ui/select';
 import { Badge } from '@/app/components/ui/badge';
 import { toast } from 'sonner';
-import { Plus, Edit, Trash2, Search, Package, ChevronLeft, ChevronRight, Layers, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ArrowDownAZ, RotateCcw, Boxes, Lock } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, Package, ChevronLeft, ChevronRight, Layers, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ArrowDownAZ, RotateCcw, Boxes, Lock, Upload, Image as ImageIcon, X, AlertCircle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +24,7 @@ import { cn } from '@/app/components/ui/utils';
 import { ErrorBoundary } from '@/app/components/ErrorBoundary';
 import { logAuditAction } from '@/app/utils/auditUtils';
 import { isRxProduct } from '@/app/utils/rxUtils';
+import { getProductImage } from '@/app/utils/productImages';
 import { OwnerPasscodeModal } from '@/app/components/OwnerPasscodeModal';
 import {
   AlertDialog,
@@ -62,14 +63,194 @@ export const getTodayBatchCode = (supplier?: string) => {
   return formatBatchCode(undefined, supplier);
 };
 
+export interface ProcessBatchInput {
+  oldQty: number;
+  oldExp?: string | null;
+  oldBatchNumber?: string | null;
+  oldArrivalDate?: string;
+  queue: BatchItem[];
+  incomingQty: number;
+  incomingExp?: string | null;
+  incomingBatchNumber: string;
+  incomingSupplier: string;
+  incomingArrivalDate: string;
+  dispensingMethod: 'FEFO' | 'FIFO';
+}
+
+export function processIncomingBatch(input: ProcessBatchInput) {
+  const isFifo = input.dispensingMethod === 'FIFO';
+  let curOld = {
+    quantity: Number(input.oldQty || 0),
+    expiryDate: isFifo ? undefined : (input.oldExp || undefined),
+    batchNumber: input.oldBatchNumber || undefined,
+    arrivalDate: input.oldArrivalDate || input.incomingArrivalDate,
+    supplier: input.incomingSupplier
+  };
+  let curQueue = Array.isArray(input.queue) ? [...input.queue] : [];
+  let actionTaken: 'combined_old' | 'swapped_old' | 'combined_queue' | 'queued' | 'set_initial' = 'queued';
+  let message = '';
+
+  const bInc = (input.incomingBatchNumber || '').trim().toUpperCase();
+  const expInc = isFifo ? undefined : (input.incomingExp ? input.incomingExp.slice(0, 10).trim() : undefined);
+
+  // If active Old batch is empty or has no batch number:
+  if (curOld.quantity <= 0 || !curOld.batchNumber) {
+    curOld = {
+      batchNumber: bInc,
+      quantity: Number(input.incomingQty),
+      expiryDate: expInc,
+      arrivalDate: input.incomingArrivalDate,
+      supplier: input.incomingSupplier
+    };
+    actionTaken = 'set_initial';
+    message = `Set initial active Old Batch: ${bInc} (${input.incomingQty} pcs)`;
+  } else {
+    const bOld = (curOld.batchNumber || '').trim().toUpperCase();
+    const expOld = isFifo ? undefined : (curOld.expiryDate ? curOld.expiryDate.slice(0, 10).trim() : undefined);
+
+    if (isFifo) {
+      // FIFO Logic:
+      // Same batch number -> Combine into Old
+      if (bOld === bInc) {
+        curOld.quantity += Number(input.incomingQty);
+        actionTaken = 'combined_old';
+        message = `Combined +${input.incomingQty} pcs into active Old Batch ${bInc} (Same Batch Number)`;
+      } else {
+        // Different batch number -> Add to queue (Old arrived first, so Old is consumed first)
+        const qIdx = curQueue.findIndex(b => (b.batchNumber || '').trim().toUpperCase() === bInc);
+        if (qIdx >= 0) {
+          curQueue[qIdx].quantity = Number(curQueue[qIdx].quantity) + Number(input.incomingQty);
+          actionTaken = 'combined_queue';
+          message = `Combined +${input.incomingQty} pcs into queued batch ${bInc}`;
+        } else {
+          curQueue.push({
+            batchNumber: bInc,
+            quantity: Number(input.incomingQty),
+            expiryDate: undefined,
+            arrivalDate: input.incomingArrivalDate,
+            supplier: input.incomingSupplier
+          });
+          actionTaken = 'queued';
+          message = `Queued new batch ${bInc} (${input.incomingQty} pcs) in FIFO order`;
+        }
+      }
+    } else {
+      // FEFO Logic:
+      // 1. Same batch number AND same expiration date -> Combine into Old!
+      if (bOld === bInc && expOld === expInc) {
+        curOld.quantity += Number(input.incomingQty);
+        actionTaken = 'combined_old';
+        message = `Combined +${input.incomingQty} pcs into active Old Batch ${bInc} (Same Batch Number & Expiry: ${expInc || 'N/A'})`;
+      } else {
+        // 2. Different expiration date or different batch number:
+        // Check if incoming batch expires SOONER than Old batch
+        const isSooner = (expInc && expOld) ? expInc < expOld : Boolean(expInc && !expOld);
+
+        if (isSooner) {
+          // SWAP: Incoming becomes Old; former Old goes into queue!
+          const formerOld: BatchItem = {
+            batchNumber: curOld.batchNumber || formatBatchCode(curOld.arrivalDate, curOld.supplier),
+            quantity: curOld.quantity,
+            expiryDate: curOld.expiryDate,
+            arrivalDate: curOld.arrivalDate,
+            supplier: curOld.supplier
+          };
+
+          curOld = {
+            batchNumber: bInc,
+            quantity: Number(input.incomingQty),
+            expiryDate: expInc,
+            arrivalDate: input.incomingArrivalDate,
+            supplier: input.incomingSupplier
+          };
+
+          // Place former Old into queue (merge if same batch # & same exp exists in queue)
+          const fCode = (formerOld.batchNumber || '').trim().toUpperCase();
+          const fExp = (formerOld.expiryDate || '').slice(0, 10).trim();
+          const qIdx = curQueue.findIndex(b => 
+            (b.batchNumber || '').trim().toUpperCase() === fCode &&
+            (b.expiryDate || '').slice(0, 10).trim() === fExp
+          );
+          if (qIdx >= 0) {
+            curQueue[qIdx].quantity = Number(curQueue[qIdx].quantity) + Number(formerOld.quantity);
+          } else {
+            curQueue.push(formerOld);
+          }
+
+          actionTaken = 'swapped_old';
+          message = `FEFO Rotation Applied: Incoming batch ${bInc} (EXP: ${expInc || 'N/A'}) expires earlier! Swapped into active Old Batch; previous batch (${formerOld.batchNumber}) moved to queue.`;
+        } else {
+          // Incoming batch expires later or equal -> Add to queue!
+          const qIdx = curQueue.findIndex(b => 
+            (b.batchNumber || '').trim().toUpperCase() === bInc &&
+            (b.expiryDate || '').slice(0, 10).trim() === (expInc || '')
+          );
+          if (qIdx >= 0) {
+            curQueue[qIdx].quantity = Number(curQueue[qIdx].quantity) + Number(input.incomingQty);
+            actionTaken = 'combined_queue';
+            message = `Combined +${input.incomingQty} pcs into queued batch ${bInc} (Same Batch Number & Expiry)`;
+          } else {
+            curQueue.push({
+              batchNumber: bInc,
+              quantity: Number(input.incomingQty),
+              expiryDate: expInc,
+              arrivalDate: input.incomingArrivalDate,
+              supplier: input.incomingSupplier
+            });
+            actionTaken = 'queued';
+            message = `Queued incoming batch ${bInc} (${input.incomingQty} pcs, EXP: ${expInc || 'N/A'}) into queue`;
+          }
+        }
+
+        // Sort queue by FEFO (earliest expiry first)
+        curQueue.sort((a, b) => {
+          const ea = (a.expiryDate || '').slice(0, 10).trim() || '9999-12-31';
+          const eb = (b.expiryDate || '').slice(0, 10).trim() || '9999-12-31';
+          if (ea !== eb) return ea.localeCompare(eb);
+          return (a.arrivalDate || '').localeCompare(b.arrivalDate || '');
+        });
+      }
+    }
+  }
+
+  // Auto-depletion rotation: if Old reached 0, rotate next batch from queue
+  if (curOld.quantity <= 0 && curQueue.length > 0) {
+    const next = curQueue.shift()!;
+    curOld = {
+      batchNumber: next.batchNumber,
+      quantity: Number(next.quantity),
+      expiryDate: isFifo ? undefined : next.expiryDate,
+      arrivalDate: next.arrivalDate,
+      supplier: next.supplier
+    };
+  }
+
+  const totalRemainingQty = curQueue.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
+  const remExpList = curQueue.map(b => b.expiryDate).filter(Boolean) as string[];
+  const earliestRemExp = (!isFifo && remExpList.length > 0) ? [...remExpList].sort()[0] : undefined;
+
+  return {
+    quantity: curOld.quantity,
+    expiryDate: curOld.expiryDate,
+    batchNumber: curOld.batchNumber,
+    newBatchQueue: curQueue,
+    newStockQuantity: totalRemainingQty,
+    newStockExpiry: earliestRemExp,
+    actionTaken,
+    message
+  };
+}
+
 export function alignBatchesFEFO(
   oldQty: number,
   oldExp: string | undefined | null,
   oldBatchNumber: string | undefined,
   queue: BatchItem[],
   defaultSupplier: string,
-  todayStr: string
+  todayStr: string,
+  dispensingMethod: 'FEFO' | 'FIFO' = 'FEFO'
 ) {
+  const isFifo = dispensingMethod === 'FIFO';
   const allBatches: BatchItem[] = [];
 
   if (Number(oldQty) > 0) {
@@ -77,7 +258,7 @@ export function alignBatchesFEFO(
       batchNumber: oldBatchNumber || formatBatchCode(todayStr, defaultSupplier),
       supplier: defaultSupplier,
       quantity: Number(oldQty),
-      expiryDate: oldExp || undefined,
+      expiryDate: isFifo ? undefined : (oldExp || undefined),
       arrivalDate: todayStr
     });
   }
@@ -89,7 +270,7 @@ export function alignBatchesFEFO(
           batchNumber: item.batchNumber || formatBatchCode(item.arrivalDate || todayStr, item.supplier || defaultSupplier),
           supplier: item.supplier || defaultSupplier,
           quantity: Number(item.quantity),
-          expiryDate: item.expiryDate || undefined,
+          expiryDate: isFifo ? undefined : (item.expiryDate || undefined),
           arrivalDate: item.arrivalDate || todayStr
         });
       }
@@ -108,29 +289,49 @@ export function alignBatchesFEFO(
     };
   }
 
-  // Strict FEFO: Earliest expiration date first
-  allBatches.sort((a, b) => {
-    const expA = a.expiryDate && a.expiryDate.trim() ? a.expiryDate.trim() : '9999-12-31';
-    const expB = b.expiryDate && b.expiryDate.trim() ? b.expiryDate.trim() : '9999-12-31';
-    if (expA !== expB) {
-      return expA.localeCompare(expB);
-    }
-    const arrA = a.arrivalDate || '';
-    const arrB = b.arrivalDate || '';
-    return arrA.localeCompare(arrB);
-  });
+  // Merge batches with SAME batch number AND SAME expiry (or FIFO same batch number)
+  const merged: BatchItem[] = [];
+  for (const b of allBatches) {
+    const bCode = (b.batchNumber || '').trim().toUpperCase();
+    const bExp = isFifo ? '' : (b.expiryDate || '').slice(0, 10).trim();
+    const existing = merged.find(m => {
+      const mCode = (m.batchNumber || '').trim().toUpperCase();
+      const mExp = isFifo ? '' : (m.expiryDate || '').slice(0, 10).trim();
+      return bCode === mCode && (isFifo || bExp === mExp);
+    });
 
-  const primary = allBatches[0];
-  const remaining = allBatches.slice(1);
+    if (existing) {
+      existing.quantity = Number(existing.quantity) + Number(b.quantity);
+    } else {
+      merged.push({ ...b });
+    }
+  }
+
+  if (!isFifo) {
+    // FEFO order: Earliest expiration date first
+    merged.sort((a, b) => {
+      const expA = a.expiryDate && a.expiryDate.trim() ? a.expiryDate.trim() : '9999-12-31';
+      const expB = b.expiryDate && b.expiryDate.trim() ? b.expiryDate.trim() : '9999-12-31';
+      if (expA !== expB) {
+        return expA.localeCompare(expB);
+      }
+      const arrA = a.arrivalDate || '';
+      const arrB = b.arrivalDate || '';
+      return arrA.localeCompare(arrB);
+    });
+  }
+
+  const primary = merged[0];
+  const remaining = merged.slice(1);
   const totalRemainingQty = remaining.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
   const remExpList = remaining.map(b => b.expiryDate).filter(Boolean) as string[];
-  const earliestRemExp = remExpList.length > 0 ? [...remExpList].sort()[0] : undefined;
+  const earliestRemExp = (!isFifo && remExpList.length > 0) ? [...remExpList].sort()[0] : undefined;
 
   const wasPromoted = primary.batchNumber !== oldBatchNumber;
 
   return {
     quantity: primary.quantity,
-    expiryDate: primary.expiryDate,
+    expiryDate: isFifo ? undefined : primary.expiryDate,
     batchNumber: primary.batchNumber,
     newBatchQueue: remaining,
     newStockQuantity: totalRemainingQty,
@@ -164,6 +365,39 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
   const [incomingBatchArrivalDate, setIncomingBatchArrivalDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [incomingBatchNumber, setIncomingBatchNumber] = useState<string>('');
   const [incomingBatchSupplier, setIncomingBatchSupplier] = useState<string>('UNILAB');
+  const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
+
+  const handleImageUpload = async (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file (PNG, JPG, WEBP, GIF)');
+      return;
+    }
+    setIsUploadingImage(true);
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      const res = await fetch('/api/upload_image.php', {
+        method: 'POST',
+        headers: {
+          'X-User-Name': currentUser.name
+        },
+        body: fd
+      });
+      const data = await res.json();
+      if (data.success && data.url) {
+        setFormData(prev => ({ ...prev, imageUrl: data.url }));
+        toast.success('Product image uploaded successfully!');
+      } else {
+        toast.error(data.message || 'Image upload failed');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Network error during image upload');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
 
   const handleAddBatchToQueue = () => {
     if (!incomingBatchQty || Number(incomingBatchQty) <= 0) {
@@ -173,61 +407,32 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
     const sup = (incomingBatchSupplier || (formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
     const arrDate = incomingBatchArrivalDate || new Date().toISOString().split('T')[0];
     const code = (incomingBatchNumber.trim() || formatBatchCode(arrDate, sup)).toUpperCase();
-    const currentQueue = Array.isArray(formData.newBatchQueue) ? [...formData.newBatchQueue] : [];
-    const existingIdx = currentQueue.findIndex(b => b.batchNumber.toUpperCase() === code);
+    const method = (formData.dispensingMethod || (formData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')) as 'FEFO' | 'FIFO';
 
-    if (existingIdx >= 0) {
-      const existing = currentQueue[existingIdx];
-      const newQty = Number(existing.quantity) + Number(incomingBatchQty);
-      let earliestExp = existing.expiryDate;
-      if (incomingBatchExp) {
-        if (!earliestExp || new Date(incomingBatchExp) < new Date(earliestExp)) {
-          earliestExp = incomingBatchExp;
-        }
-      }
-      currentQueue[existingIdx] = {
-        ...existing,
-        quantity: newQty,
-        expiryDate: earliestExp,
-        arrivalDate: existing.arrivalDate || arrDate
-      };
-    } else {
-      currentQueue.push({
-        batchNumber: code,
-        supplier: sup,
-        quantity: Number(incomingBatchQty),
-        expiryDate: incomingBatchExp || undefined,
-        arrivalDate: arrDate
-      });
-    }
-
-    // Apply strict FEFO alignment: Earliest expiration batch is ALWAYS the active Old Batch
-    const aligned = alignBatchesFEFO(
-      Number(formData.quantity ?? 0),
-      formData.expiryDate,
-      formData.batchNumber,
-      currentQueue,
-      sup,
-      arrDate
-    );
+    const result = processIncomingBatch({
+      oldQty: Number(formData.quantity ?? 0),
+      oldExp: formData.expiryDate,
+      oldBatchNumber: formData.batchNumber,
+      queue: Array.isArray(formData.newBatchQueue) ? [...formData.newBatchQueue] : [],
+      incomingQty: Number(incomingBatchQty),
+      incomingExp: incomingBatchExp,
+      incomingBatchNumber: code,
+      incomingSupplier: sup,
+      incomingArrivalDate: arrDate,
+      dispensingMethod: method
+    });
 
     setFormData({
       ...formData,
-      quantity: aligned.quantity,
-      expiryDate: aligned.expiryDate,
-      batchNumber: aligned.batchNumber,
-      newBatchQueue: aligned.newBatchQueue,
-      newStockQuantity: aligned.newStockQuantity,
-      newStockExpiry: aligned.newStockExpiry
+      quantity: result.quantity,
+      expiryDate: result.expiryDate,
+      batchNumber: result.batchNumber,
+      newBatchQueue: result.newBatchQueue,
+      newStockQuantity: result.newStockQuantity,
+      newStockExpiry: result.newStockExpiry
     });
 
-    if (aligned.wasPromoted) {
-      toast.success(`FEFO Rotation Applied: Batch ${aligned.batchNumber} (EXP: ${aligned.expiryDate || 'N/A'}) expires earliest and is promoted to active Old Batch!`);
-    } else if (existingIdx >= 0) {
-      toast.success(`Accumulated +${incomingBatchQty} pcs into existing batch ${code}.`);
-    } else {
-      toast.success(`Queued new batch ${code} with ${incomingBatchQty} pcs into restock queue`);
-    }
+    toast.success(result.message);
 
     setIncomingBatchQty('');
     setIncomingBatchExp('');
@@ -250,6 +455,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
 
     const sup = formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH';
     const batchNumber = formData.batchNumber?.trim() || getTodayBatchCode(sup);
+    const method = formData.dispensingMethod || (formData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO');
 
     try {
       const response = await fetch('/api/products.php', {
@@ -260,9 +466,11 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         },
         body: JSON.stringify({
           ...formData,
+          dispensingMethod: method,
+          imageUrl: formData.imageUrl || null,
           batchNumber,
           newStockQuantity: formData.newStockQuantity || 0,
-          newStockExpiry: formData.newStockExpiry || null,
+          newStockExpiry: method === 'FIFO' ? null : (formData.newStockExpiry || null),
           newBatchQueue: formData.newBatchQueue || []
         })
       });
@@ -272,7 +480,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         logAuditAction(
           currentUser.name,
           'Inventory Add',
-          `Added New Product: ${formData.name} [SKU: ${formData.sku}, Category: ${formData.category}] | Initial Old Batch: ${batchNumber} (${formData.quantity} pcs, EXP: ${formData.expiryDate || 'N/A'}, Supplier: ${sup}) | Cost: ₱${Number(formData.cost).toFixed(2)} | Price: ₱${Number(formData.price).toFixed(2)} | Reorder Level: ${formData.reorderLevel}`
+          `Added New Product: ${formData.name} [SKU: ${formData.sku}, Category: ${formData.category}, Method: ${method}] | Initial Old Batch: ${batchNumber} (${formData.quantity} pcs, EXP: ${formData.expiryDate || 'N/A'}, Supplier: ${sup}) | Cost: ₱${Number(formData.cost).toFixed(2)} | Price: ₱${Number(formData.price).toFixed(2)} | Reorder Level: ${formData.reorderLevel}`
         );
         setIsAddDialogOpen(false);
         setFormData({});
@@ -291,6 +499,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
     const sup = p.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH';
     const todayStr = new Date().toISOString().split('T')[0];
     const initialArrDate = p.createdAt ? p.createdAt.slice(0, 10) : todayStr;
+    const method = (p.dispensingMethod || (p.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')) as 'FEFO' | 'FIFO';
 
     const initialQueue: BatchItem[] = Array.isArray(p.newBatchQueue) && p.newBatchQueue.length > 0
       ? p.newBatchQueue.map(b => ({
@@ -298,6 +507,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
           batchNumber: (b.batchNumber && !b.batchNumber.startsWith('20261014-'))
             ? b.batchNumber
             : formatBatchCode(b.arrivalDate || todayStr, b.supplier || sup),
+          expiryDate: method === 'FIFO' ? undefined : b.expiryDate,
           arrivalDate: b.arrivalDate || todayStr
         }))
       : (p.newStockQuantity && p.newStockQuantity > 0
@@ -305,7 +515,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
               batchNumber: formatBatchCode(todayStr, sup),
               supplier: sup,
               quantity: p.newStockQuantity,
-              expiryDate: p.newStockExpiry,
+              expiryDate: method === 'FIFO' ? undefined : p.newStockExpiry,
               arrivalDate: todayStr
             }]
           : []);
@@ -316,19 +526,22 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
           : formatBatchCode(initialArrDate, sup))
       : undefined;
 
-    // Apply strict FEFO alignment: Earliest expiration batch ALWAYS becomes Old Batch
+    // Apply alignment
     const aligned = alignBatchesFEFO(
       Number(p.quantity ?? 0),
-      p.expiryDate,
+      method === 'FIFO' ? undefined : p.expiryDate,
       oldBatchNumber,
       initialQueue,
       sup,
-      todayStr
+      todayStr,
+      method
     );
 
     setEditingProduct(p);
     setFormData({
       ...p,
+      dispensingMethod: method,
+      imageUrl: p.imageUrl || (p as any).image_url,
       quantity: aligned.quantity,
       expiryDate: aligned.expiryDate,
       batchNumber: aligned.batchNumber,
@@ -347,72 +560,60 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
   const handleEditProduct = async () => {
     if (!editingProduct) return;
 
-    // Check if the user filled in the incoming batch inputs without explicitly clicking "+ Queue Batch"
-    let currentQueue = Array.isArray(formData.newBatchQueue) ? [...formData.newBatchQueue] : [];
-    const sup = (incomingBatchSupplier || (formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
+    let workingData = { ...formData };
+    const sup = (incomingBatchSupplier || (workingData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
     const arrDate = incomingBatchArrivalDate || new Date().toISOString().split('T')[0];
+    const method = (workingData.dispensingMethod || (workingData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')) as 'FEFO' | 'FIFO';
 
     let newlyAddedBatchSummary = '';
 
     if (incomingBatchQty && Number(incomingBatchQty) > 0) {
       const code = (incomingBatchNumber.trim() || formatBatchCode(arrDate, sup)).toUpperCase();
-      const existingIdx = currentQueue.findIndex(b => b.batchNumber.toUpperCase() === code);
+      const result = processIncomingBatch({
+        oldQty: Number(workingData.quantity ?? 0),
+        oldExp: workingData.expiryDate,
+        oldBatchNumber: workingData.batchNumber,
+        queue: Array.isArray(workingData.newBatchQueue) ? [...workingData.newBatchQueue] : [],
+        incomingQty: Number(incomingBatchQty),
+        incomingExp: incomingBatchExp,
+        incomingBatchNumber: code,
+        incomingSupplier: sup,
+        incomingArrivalDate: arrDate,
+        dispensingMethod: method
+      });
 
-      if (existingIdx >= 0) {
-        const existing = currentQueue[existingIdx];
-        const newQty = Number(existing.quantity) + Number(incomingBatchQty);
-        let earliestExp = existing.expiryDate;
-        if (incomingBatchExp) {
-          if (!earliestExp || new Date(incomingBatchExp) < new Date(earliestExp)) {
-            earliestExp = incomingBatchExp;
-          }
-        }
-        currentQueue[existingIdx] = {
-          ...existing,
-          quantity: newQty,
-          expiryDate: earliestExp,
-          arrivalDate: existing.arrivalDate || arrDate
-        };
-        newlyAddedBatchSummary = ` | Accumulated +${incomingBatchQty} pcs into Batch ${code} (EXP: ${earliestExp || 'N/A'}, Supplier: ${sup})`;
-      } else {
-        currentQueue.push({
-          batchNumber: code,
-          supplier: sup,
-          quantity: Number(incomingBatchQty),
-          expiryDate: incomingBatchExp || undefined,
-          arrivalDate: arrDate
-        });
-        newlyAddedBatchSummary = ` | Added Incoming Batch: ${code} (+${incomingBatchQty} pcs, EXP: ${incomingBatchExp || 'N/A'}, Supplier: ${sup})`;
-      }
+      workingData = {
+        ...workingData,
+        quantity: result.quantity,
+        expiryDate: result.expiryDate,
+        batchNumber: result.batchNumber,
+        newBatchQueue: result.newBatchQueue,
+        newStockQuantity: result.newStockQuantity,
+        newStockExpiry: result.newStockExpiry
+      };
+      newlyAddedBatchSummary = ` | ${result.message}`;
     }
-
-    // Strict FEFO alignment: Earliest expiration batch ALWAYS becomes the active Old Batch
-    const aligned = alignBatchesFEFO(
-      Number(formData.quantity ?? 0),
-      formData.expiryDate,
-      formData.batchNumber,
-      currentQueue,
-      sup,
-      arrDate
-    );
 
     const payload = {
       ...editingProduct,
-      ...formData,
-      quantity: aligned.quantity,
-      expiryDate: aligned.expiryDate,
-      batchNumber: aligned.batchNumber,
-      newBatchQueue: aligned.newBatchQueue,
-      newStockQuantity: aligned.newStockQuantity,
-      newStockExpiry: aligned.newStockExpiry
+      ...workingData,
+      dispensingMethod: method,
+      imageUrl: workingData.imageUrl || null,
+      quantity: workingData.quantity,
+      expiryDate: method === 'FIFO' ? null : (workingData.expiryDate || null),
+      batchNumber: workingData.batchNumber,
+      newBatchQueue: workingData.newBatchQueue || [],
+      newStockQuantity: workingData.newStockQuantity || 0,
+      newStockExpiry: method === 'FIFO' ? null : (workingData.newStockExpiry || null)
     };
 
-    const queueDetails = aligned.newBatchQueue.length > 0
-      ? ` | Queued Batches (${aligned.newBatchQueue.length}): [${aligned.newBatchQueue.map(b => `${b.batchNumber}: ${b.quantity} pcs (EXP: ${b.expiryDate || 'N/A'})`).join(', ')}]`
+    const currentQ = workingData.newBatchQueue || [];
+    const queueDetails = currentQ.length > 0
+      ? ` | Queued Batches (${currentQ.length}): [${currentQ.map(b => `${b.batchNumber}: ${b.quantity} pcs (EXP: ${b.expiryDate || 'N/A'})`).join(', ')}]`
       : ' | Queued Batches: None';
 
-    const totalCombinedStock = Number(aligned.quantity) + Number(aligned.newStockQuantity);
-    const auditDetails = `Updated Product: ${payload.name} [SKU: ${payload.sku}]${newlyAddedBatchSummary} | Active Old Batch: ${aligned.batchNumber} (${aligned.quantity} pcs, EXP: ${aligned.expiryDate || 'N/A'}) | New Batch Total: ${aligned.newStockQuantity} pcs${queueDetails} | Total Combined Stock: ${totalCombinedStock} pcs | Price: ₱${Number(payload.price).toFixed(2)}`;
+    const totalCombinedStock = Number(workingData.quantity || 0) + Number(workingData.newStockQuantity || 0);
+    const auditDetails = `Updated Product: ${payload.name} [SKU: ${payload.sku}, Method: ${method}]${newlyAddedBatchSummary} | Active Old Batch: ${workingData.batchNumber} (${workingData.quantity} pcs, EXP: ${workingData.expiryDate || 'N/A'}) | New Batch Total: ${workingData.newStockQuantity} pcs${queueDetails} | Total Combined Stock: ${totalCombinedStock} pcs | Price: ₱${Number(payload.price).toFixed(2)}`;
 
     try {
       const response = await fetch(`/api/products.php?id=${editingProduct.id}`, {
@@ -564,18 +765,19 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
   };
 
   const getStockStatus = (product: Product) => {
+    const isFIFO = product.dispensingMethod === 'FIFO' || (!product.expiryDate && product.category !== 'Pharmaceutical');
     const oldQty = Math.max(0, Number(product.quantity));
     const newQty = Math.max(0, Number(product.newStockQuantity || 0));
     const total = oldQty + newQty;
 
-    const oldExpired = isDateExpired(product.expiryDate);
-    const newExpired = isDateExpired(product.newStockExpiry);
+    const oldExpired = isFIFO ? false : isDateExpired(product.expiryDate);
+    const newExpired = isFIFO ? false : isDateExpired(product.newStockExpiry);
 
     const sellable = (oldExpired ? 0 : oldQty) + (newExpired ? 0 : newQty);
 
     if (total === 0) return { label: 'Out of Stock', color: 'bg-red-100 text-red-800' };
-    if (sellable === 0) return { label: 'Expired', color: 'bg-red-600 text-white animate-pulse' };
-    if (sellable < total) return { label: 'Partial Expired', color: 'bg-amber-100 text-amber-800' };
+    if (!isFIFO && sellable === 0) return { label: 'Expired', color: 'bg-red-600 text-white animate-pulse' };
+    if (!isFIFO && sellable < total) return { label: 'Partial Expired', color: 'bg-amber-100 text-amber-800' };
     if (sellable <= product.reorderLevel) return { label: 'Low Stock', color: 'bg-orange-100 text-orange-800' };
     return { label: 'In Stock', color: 'bg-green-100 text-green-800' };
   };
@@ -658,6 +860,67 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                   <DialogDescription>Enter the details of the new product</DialogDescription>
                 </DialogHeader>
                 <div className="grid grid-cols-2 gap-4 py-4">
+                  {/* Product Image Attachment */}
+                  <div className="space-y-2 col-span-2">
+                    <Label className="text-xs font-bold text-gray-700 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <ImageIcon className="size-4 text-emerald-600" /> Product Image (Para sa POS at Inventory)
+                      </span>
+                      {isUploadingImage && <span className="text-xs text-blue-600 animate-pulse font-medium">Uploading image...</span>}
+                    </Label>
+                    {formData.imageUrl ? (
+                      <div className="flex items-center gap-4 p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                        <div className="size-16 rounded-lg bg-white border border-emerald-200 p-1 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                          <img src={formData.imageUrl} alt="Product Preview" className="size-full object-contain mix-blend-multiply" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-emerald-900 truncate">Image Attached</p>
+                          <p className="text-[10px] text-emerald-700 truncate font-mono">{formData.imageUrl}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="cursor-pointer px-3 py-1.5 text-xs font-bold bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-2xs">
+                            Change
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file);
+                              }}
+                            />
+                          </label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setFormData({ ...formData, imageUrl: undefined })}
+                            className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <X className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-200 hover:border-emerald-500 rounded-xl bg-gray-50/50 hover:bg-emerald-50/30 transition-all cursor-pointer group">
+                        <Upload className="size-6 text-gray-400 group-hover:text-emerald-600 group-hover:scale-110 transition-transform mb-1.5" />
+                        <span className="text-xs font-bold text-gray-700 group-hover:text-emerald-800">
+                          Click to upload product image
+                        </span>
+                        <span className="text-[10px] text-gray-400 mt-0.5">PNG, JPG, WEBP, GIF up to 10MB</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImageUpload(file);
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="name">Product Name *</Label>
                     <Input id="name" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
@@ -668,7 +931,18 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="category">Category *</Label>
-                    <Select value={formData.category || ''} onValueChange={(value) => setFormData({ ...formData, category: value })}>
+                    <Select
+                      value={formData.category || ''}
+                      onValueChange={(value) => {
+                        const defaultMethod = value === 'Pharmaceutical' ? 'FEFO' : 'FIFO';
+                        setFormData({
+                          ...formData,
+                          category: value,
+                          dispensingMethod: defaultMethod,
+                          expiryDate: defaultMethod === 'FIFO' ? undefined : formData.expiryDate
+                        });
+                      }}
+                    >
                       <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
                       <SelectContent>
                         {categories.map(cat => (<SelectItem key={cat} value={cat}>{cat}</SelectItem>))}
@@ -676,12 +950,42 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                     </Select>
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="dispensingMethod">Dispensing Method *</Label>
+                    <Select
+                      value={formData.dispensingMethod || (formData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')}
+                      onValueChange={(value: 'FEFO' | 'FIFO') => {
+                        setFormData({
+                          ...formData,
+                          dispensingMethod: value,
+                          expiryDate: value === 'FIFO' ? undefined : formData.expiryDate
+                        });
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select method" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="FEFO">FEFO (First Expired, First Out)</SelectItem>
+                        <SelectItem value="FIFO">FIFO (First In, First Out - No Expiry)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
                     <Label htmlFor="quantity">Old Batch Qty *</Label>
                     <Input id="quantity" type="number" value={formData.quantity || ''} onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="expiryDate">Old Batch Expiry</Label>
-                    <Input id="expiryDate" type="date" value={formData.expiryDate || ''} onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })} />
+                    <Label htmlFor="expiryDate" className="flex items-center justify-between">
+                      <span>Old Batch Expiry {formData.dispensingMethod === 'FIFO' ? '(N/A - FIFO)' : '*'}</span>
+                      {formData.dispensingMethod === 'FIFO' && <span className="text-[9px] font-bold text-sky-600 bg-sky-50 px-1 rounded">Walang Expiry</span>}
+                    </Label>
+                    <Input
+                      id="expiryDate"
+                      type="date"
+                      disabled={formData.dispensingMethod === 'FIFO'}
+                      value={formData.dispensingMethod === 'FIFO' ? '' : (formData.expiryDate || '')}
+                      onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                      placeholder={formData.dispensingMethod === 'FIFO' ? 'No Expiry (FIFO)' : ''}
+                    />
                   </div>
                   <div className="space-y-2 col-span-2">
                     <div className="flex items-center justify-between">
@@ -729,8 +1033,17 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                         <Input id="newBatchQuantity" type="number" placeholder="Optional" value={formData.newStockQuantity || ''} onChange={(e) => setFormData({ ...formData, newStockQuantity: Number(e.target.value) })} className="bg-white border-blue-200" />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="newBatchExpiry" className="text-[10px] uppercase font-bold text-blue-600 tracking-wider">New Batch Expiry</Label>
-                        <Input id="newBatchExpiry" type="date" value={formData.newStockExpiry || ''} onChange={(e) => setFormData({ ...formData, newStockExpiry: e.target.value })} className="bg-white border-blue-200" />
+                        <Label htmlFor="newBatchExpiry" className="text-[10px] uppercase font-bold text-blue-600 tracking-wider">
+                          New Batch Expiry {formData.dispensingMethod === 'FIFO' ? '(N/A - FIFO)' : ''}
+                        </Label>
+                        <Input
+                          id="newBatchExpiry"
+                          type="date"
+                          disabled={formData.dispensingMethod === 'FIFO'}
+                          value={formData.dispensingMethod === 'FIFO' ? '' : (formData.newStockExpiry || '')}
+                          onChange={(e) => setFormData({ ...formData, newStockExpiry: e.target.value })}
+                          className="bg-white border-blue-200"
+                        />
                       </div>
                     </div>
                   </div>
@@ -1045,25 +1358,53 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                   <TableBody className="divide-y divide-gray-200">
                     {paginatedProducts.map((product) => {
                       const status = getStockStatus(product);
+                      const isFIFO = product.dispensingMethod === 'FIFO' || (!product.expiryDate && product.category !== 'Pharmaceutical');
+                      const imgInfo = getProductImage(product);
                       return (
                         <TableRow key={product.id} className="hover:bg-gray-50/50 transition-colors">
                           <TableCell className="px-6 py-4 border-r border-gray-200">
-                            <div className="flex flex-col">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-bold text-gray-900">{product.name.replace(/\*/g, '')}</span>
-                                {isRxProduct(product) && (
-                                  <span
-                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider text-white shadow-xs"
-                                    style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
-                                    title="Prescription Required (Rx)"
-                                  >
-                                    Rx
-                                  </span>
-                                )}
+                            <div className="flex items-center gap-3">
+                              <div className="size-11 rounded-lg bg-gray-50 border border-gray-200 shrink-0 overflow-hidden flex items-center justify-center p-0.5 shadow-2xs">
+                                <img
+                                  src={imgInfo.imageUrl}
+                                  alt={product.name}
+                                  className="size-full object-contain mix-blend-multiply"
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    const target = e.currentTarget;
+                                    target.onerror = null;
+                                    target.src = imgInfo.fallbackUrl;
+                                  }}
+                                />
                               </div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <span className="text-[10px] text-gray-400 font-black uppercase tracking-tighter bg-gray-100 px-1 rounded">{product.sku}</span>
-                                <span className="text-[10px] text-blue-500 font-bold uppercase">{product.category}</span>
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-gray-900 truncate max-w-[240px]" title={product.name}>
+                                    {product.name.replace(/\*/g, '')}
+                                  </span>
+                                  {isRxProduct(product) && (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider text-white shadow-xs"
+                                      style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
+                                      title="Prescription Required (Rx)"
+                                    >
+                                      Rx
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[10px] text-gray-400 font-black uppercase tracking-tighter bg-gray-100 px-1 rounded">{product.sku}</span>
+                                  <span className="text-[10px] text-blue-500 font-bold uppercase">{product.category}</span>
+                                  {isFIFO ? (
+                                    <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 border border-sky-200" title="First In, First Out (Walang Expiration)">
+                                      FIFO
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200" title="First Expired, First Out">
+                                      FEFO
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </TableCell>
@@ -1074,8 +1415,12 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                               </div>
                             ) : (
                               <div className="flex flex-col items-center justify-center">
-                                <span className={`text-md font-black ${isDateExpired(product.expiryDate) ? 'text-red-600' : 'text-gray-900'}`}>{product.quantity}</span>
-                                <span className={`text-[9px] font-bold uppercase ${isDateExpired(product.expiryDate) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {product.expiryDate || 'N/A'}</span>
+                                <span className={`text-md font-black ${!isFIFO && isDateExpired(product.expiryDate) ? 'text-red-600' : 'text-gray-900'}`}>{product.quantity}</span>
+                                {isFIFO ? (
+                                  <span className="text-[9px] font-bold uppercase text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 mt-0.5">No Expiry (FIFO)</span>
+                                ) : (
+                                  <span className={`text-[9px] font-bold uppercase ${isDateExpired(product.expiryDate) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {product.expiryDate || 'N/A'}</span>
+                                )}
                                 {product.batchNumber && (
                                   <span className="text-[9px] font-mono font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded mt-1 border border-gray-200 shadow-2xs">
                                     {product.batchNumber}
@@ -1089,7 +1434,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                               const queueBatches = Array.isArray(product.newBatchQueue) ? product.newBatchQueue : [];
                               const queueTotalQty = queueBatches.reduce((acc, b) => acc + Number(b.quantity || 0), 0);
                               const effectiveNewQty = Number(product.newStockQuantity || 0) > 0 ? Number(product.newStockQuantity) : queueTotalQty;
-                              const effectiveNewExpiry = product.newStockExpiry || (queueBatches.find(b => b.expiryDate)?.expiryDate);
+                              const effectiveNewExpiry = isFIFO ? null : (product.newStockExpiry || (queueBatches.find(b => b.expiryDate)?.expiryDate));
 
                               if (effectiveNewQty <= 0) {
                                 return <span className="text-[10px] text-gray-400 font-bold">-</span>;
@@ -1103,8 +1448,12 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
 
                               return (
                                 <div className="flex flex-col items-center justify-center">
-                                  <span className={`text-sm font-black ${isDateExpired(effectiveNewExpiry) ? 'text-red-600' : 'text-blue-800'}`}>{effectiveNewQty}</span>
-                                  <span className={`text-[9px] font-bold uppercase ${isDateExpired(effectiveNewExpiry) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {effectiveNewExpiry || 'N/A'}</span>
+                                  <span className={`text-sm font-black ${!isFIFO && isDateExpired(effectiveNewExpiry) ? 'text-red-600' : 'text-blue-800'}`}>{effectiveNewQty}</span>
+                                  {isFIFO ? (
+                                    <span className="text-[9px] font-bold uppercase text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 mt-0.5">No Expiry (FIFO)</span>
+                                  ) : (
+                                    <span className={`text-[9px] font-bold uppercase ${isDateExpired(effectiveNewExpiry) ? 'text-red-500 font-black' : 'text-gray-400'}`}>EXP: {effectiveNewExpiry || 'N/A'}</span>
+                                  )}
                                   {queueBatches.length > 1 ? (
                                     <Button
                                       variant="ghost"
@@ -1267,12 +1616,48 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                       </div>
                       <div className="space-y-1">
                         <Label htmlFor="edit-category" className="text-[11px] font-bold text-gray-700">Category *</Label>
-                        <Select value={formData.category || ''} onValueChange={(value) => setFormData({ ...formData, category: value })}>
+                        <Select
+                          value={formData.category || ''}
+                          onValueChange={(value) => {
+                            const defaultMethod = value === 'Pharmaceutical' ? 'FEFO' : 'FIFO';
+                            setFormData({
+                              ...formData,
+                              category: value,
+                              dispensingMethod: defaultMethod,
+                              expiryDate: defaultMethod === 'FIFO' ? undefined : formData.expiryDate
+                            });
+                          }}
+                        >
                           <SelectTrigger className="h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {categories.map(cat => (<SelectItem key={cat} value={cat}>{cat}</SelectItem>))}
                           </SelectContent>
                         </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-dispensingMethod" className="text-[11px] font-bold text-gray-700">Dispensing Method *</Label>
+                        <Select
+                          value={formData.dispensingMethod || (formData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')}
+                          onValueChange={(value: 'FEFO' | 'FIFO') => {
+                            setFormData({
+                              ...formData,
+                              dispensingMethod: value,
+                              expiryDate: value === 'FIFO' ? undefined : formData.expiryDate
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs bg-white"><SelectValue placeholder="Select method" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="FEFO">FEFO (First Expired, First Out)</SelectItem>
+                            <SelectItem value="FIFO">FIFO (First In, First Out - No Expiry)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-reorderLevel" className="text-[11px] font-bold text-gray-700">Reorder Level *</Label>
+                        <Input id="edit-reorderLevel" type="number" value={formData.reorderLevel || ''} onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })} className="h-8 text-xs bg-white" />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
@@ -1285,15 +1670,67 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                         <Input id="edit-cost" type="number" step="0.01" value={formData.cost || ''} onChange={(e) => setFormData({ ...formData, cost: Number(e.target.value) })} className="h-8 text-xs bg-white" />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div className="space-y-1">
-                        <Label htmlFor="edit-reorderLevel" className="text-[11px] font-bold text-gray-700">Reorder Level *</Label>
-                        <Input id="edit-reorderLevel" type="number" value={formData.reorderLevel || ''} onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })} className="h-8 text-xs bg-white" />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="edit-description" className="text-[11px] font-bold text-gray-700">Description</Label>
-                        <Input id="edit-description" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="h-8 text-xs bg-white" placeholder="Optional details..." />
-                      </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-description" className="text-[11px] font-bold text-gray-700">Description</Label>
+                      <Input id="edit-description" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="h-8 text-xs bg-white" placeholder="Optional details..." />
+                    </div>
+
+                    {/* Product Image Attachment */}
+                    <div className="space-y-1 pt-1.5 border-t border-gray-200">
+                      <Label className="text-[11px] font-bold text-gray-700 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <ImageIcon className="size-3.5 text-emerald-600" /> Attached Image (POS & Inventory)
+                        </span>
+                        {isUploadingImage && <span className="text-[10px] text-blue-600 animate-pulse font-medium">Uploading...</span>}
+                      </Label>
+                      {formData.imageUrl ? (
+                        <div className="flex items-center gap-2.5 p-2 bg-emerald-50/60 border border-emerald-200 rounded-lg">
+                          <div className="size-11 rounded bg-white border border-emerald-200 p-0.5 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                            <img src={formData.imageUrl} alt="Product Preview" className="size-full object-contain mix-blend-multiply" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-bold text-emerald-900 truncate">Image Attached</p>
+                            <p className="text-[9px] text-emerald-700 truncate font-mono">{formData.imageUrl}</p>
+                          </div>
+                          <label className="cursor-pointer px-2 py-1 text-[10px] font-bold bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50 transition-colors shadow-2xs">
+                            Change
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file);
+                              }}
+                            />
+                          </label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setFormData({ ...formData, imageUrl: undefined })}
+                            className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <X className="size-3.5" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <label className="flex items-center justify-center gap-2 p-2 border border-dashed border-gray-300 hover:border-emerald-500 rounded-lg bg-white hover:bg-emerald-50/20 transition-all cursor-pointer group">
+                          <Upload className="size-3.5 text-gray-400 group-hover:text-emerald-600 transition-colors" />
+                          <span className="text-[11px] font-semibold text-gray-600 group-hover:text-emerald-800">
+                            Click to upload product image (PNG, JPG, WEBP)
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleImageUpload(file);
+                            }}
+                          />
+                        </label>
+                      )}
                     </div>
                   </div>
 
@@ -1321,8 +1758,12 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                       <div className="space-y-1">
                         <Label className="text-[11px] font-bold text-gray-700">Old Batch Expiry Date</Label>
                         <div className="h-8 px-2.5 py-1 bg-amber-100/40 border border-amber-200/80 rounded-md flex items-center justify-between select-none">
-                          <span className="font-bold text-gray-800 text-xs">{formData.expiryDate || 'N/A'}</span>
-                          <span className="text-[9px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Read-Only</span>
+                          <span className="font-bold text-gray-800 text-xs">
+                            {formData.dispensingMethod === 'FIFO' ? 'No Expiry (FIFO)' : (formData.expiryDate || 'N/A')}
+                          </span>
+                          <span className="text-[9px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                            {formData.dispensingMethod === 'FIFO' ? 'FIFO' : 'Read-Only'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1473,11 +1914,16 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label htmlFor="incoming-exp" className="text-[10px] font-bold text-gray-700">Expiry Date</Label>
+                          <Label htmlFor="incoming-exp" className="text-[10px] font-bold text-gray-700 flex items-center justify-between">
+                            <span>Expiry Date {formData.dispensingMethod === 'FIFO' ? '(N/A - FIFO)' : ''}</span>
+                            {formData.dispensingMethod === 'FIFO' && <span className="text-[9px] text-sky-600 font-bold">Walang Expiry</span>}
+                          </Label>
                           <Input
                             id="incoming-exp"
                             type="date"
-                            value={incomingBatchExp}
+                            disabled={formData.dispensingMethod === 'FIFO'}
+                            value={formData.dispensingMethod === 'FIFO' ? '' : incomingBatchExp}
+                            placeholder={formData.dispensingMethod === 'FIFO' ? 'No Expiry (FIFO)' : ''}
                             onChange={(e) => setIncomingBatchExp(e.target.value)}
                             className="h-8 text-xs bg-gray-50/50"
                           />
@@ -1760,7 +2206,9 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                     <div className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Active Old Batch (Currently Selling in POS)</div>
                     <div className="text-sm font-black text-gray-900 mt-0.5">
                       {Number(viewingQueueProduct.quantity)} units
-                      <span className="ml-2 text-xs font-bold text-gray-500">EXP: {viewingQueueProduct.expiryDate || 'N/A'}</span>
+                      <span className="ml-2 text-xs font-bold text-gray-500">
+                        {viewingQueueProduct.dispensingMethod === 'FIFO' ? 'No Expiry (FIFO)' : `EXP: ${viewingQueueProduct.expiryDate || 'N/A'}`}
+                      </span>
                     </div>
                   </div>
                   <Badge className="bg-gray-200 text-gray-800 hover:bg-gray-200 text-xs font-mono font-black">
@@ -1795,7 +2243,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                             <th className="p-2.5 text-center">Arrival Date</th>
                             <th className="p-2.5 text-center">Quantity</th>
                             <th className="p-2.5 text-center">Expiry Date</th>
-                            <th className="p-2.5 text-center">FEFO Status</th>
+                            <th className="p-2.5 text-center">{viewingQueueProduct.dispensingMethod === 'FIFO' ? 'Order' : 'FEFO Status'}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
@@ -1816,7 +2264,13 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                               </td>
                               <td className="p-2.5 text-center text-gray-600 font-medium">{b.arrivalDate || 'N/A'}</td>
                               <td className="p-2.5 text-center font-black text-gray-900">{b.quantity} pcs</td>
-                              <td className="p-2.5 text-center font-bold text-gray-700">{b.expiryDate || 'N/A'}</td>
+                              <td className="p-2.5 text-center font-bold text-gray-700">
+                                {viewingQueueProduct.dispensingMethod === 'FIFO' ? (
+                                  <span className="text-[10px] text-sky-700 font-bold bg-sky-50 px-1 rounded">No Expiry (FIFO)</span>
+                                ) : (
+                                  b.expiryDate || 'N/A'
+                                )}
+                              </td>
                               <td className="p-2.5 text-center">
                                 <Badge variant="outline" className="border-green-300 text-green-700 bg-green-50 text-[9px] font-bold">
                                   Standby

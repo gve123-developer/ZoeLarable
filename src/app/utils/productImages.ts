@@ -137,7 +137,7 @@ export function generateVariantPackshot(name: string, sku: string, category: str
 }
 
 // Main image resolution engine
-export function getProductImage(product: { sku: string; name: string; category?: string; description?: string }): ProductImageInfo {
+export function getProductImage(product: { sku: string; name: string; category?: string; description?: string; imageUrl?: string; image_url?: string }): ProductImageInfo {
   const name = product.name.replace(/\*/g, '').trim();
   const upper = name.toUpperCase();
   const sku = product.sku || '';
@@ -195,9 +195,12 @@ export function getProductImage(product: { sku: string; name: string; category?:
   // 3. Fallback Dynamic Packshot
   const fallbackUrl = generateVariantPackshot(name, sku, categoryTag);
 
-  // 4. Check Direct Registry (All 1,842 Authentic Scraped & Curated Real Packshots)
+  // 4. Check Attached Custom Image, then Direct Registry, then Fallback
+  const attachedImage = (product.imageUrl && product.imageUrl.trim() !== '') 
+    ? product.imageUrl.trim() 
+    : ((product.image_url && product.image_url.trim() !== '') ? product.image_url.trim() : null);
   const registry = directRegistry as Record<string, string>;
-  const directRealImage = registry[sku];
+  const directRealImage = attachedImage || registry[sku];
 
   const imageUrl = directRealImage || fallbackUrl;
 

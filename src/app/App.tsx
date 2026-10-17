@@ -60,6 +60,8 @@ export interface Product {
   newBatchQueue?: BatchItem[];
   arrivalDate?: string;
   createdAt?: string;
+  dispensingMethod?: 'FEFO' | 'FIFO';
+  imageUrl?: string;
 }
 
 export interface Transaction {

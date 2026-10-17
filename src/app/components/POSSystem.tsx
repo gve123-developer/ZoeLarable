@@ -213,19 +213,20 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
   };
 
   const getSellableStock = (product: Product) => {
+    const isFIFO = product.dispensingMethod === 'FIFO' || (!product.expiryDate && product.category !== 'Pharmaceutical');
     const oldQty = Math.max(0, Number(product.quantity));
     const newQty = Math.max(0, Number(product.newStockQuantity || 0));
 
-    const oldExpired = isBatchExpired(product.expiryDate);
-    const newExpired = isBatchExpired(product.newStockExpiry);
+    const oldExpired = isFIFO ? false : isBatchExpired(product.expiryDate);
+    const newExpired = isFIFO ? false : isBatchExpired(product.newStockExpiry);
 
     const oldSellable = oldExpired ? 0 : oldQty;
     const newSellable = newExpired ? 0 : newQty;
     const totalSellable = oldSellable + newSellable;
     const totalPhysical = oldQty + newQty;
 
-    const hasExpiredBatch = (oldExpired && oldQty > 0) || (newExpired && newQty > 0);
-    const allExpired = totalPhysical > 0 && totalSellable === 0;
+    const hasExpiredBatch = !isFIFO && ((oldExpired && oldQty > 0) || (newExpired && newQty > 0));
+    const allExpired = !isFIFO && totalPhysical > 0 && totalSellable === 0;
 
     return { totalSellable, oldSellable, newSellable, oldExpired, newExpired, hasExpiredBatch, allExpired, totalPhysical };
   };
