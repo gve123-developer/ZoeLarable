@@ -1086,15 +1086,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
                   <div className="space-y-1.5 text-xs text-gray-600">
                     <div className="flex justify-between">
                       <span>Subtotal</span>
-                      <span className="font-bold text-gray-900">₱{(calculateTotal() / 1.12).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Discount</span>
-                      <span className="font-bold text-gray-900">₱0.00</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Tax (12%)</span>
-                      <span className="font-bold text-gray-900">₱{(calculateTotal() - calculateTotal() / 1.12).toFixed(2)}</span>
+                      <span className="font-bold text-gray-900">₱{calculateTotal().toFixed(2)}</span>
                     </div>
                   </div>
 
