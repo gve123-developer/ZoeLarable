@@ -6,7 +6,7 @@ import { Badge } from '@/app/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/app/components/ui/alert-dialog';
 import { User, Product, Transaction } from '@/app/App';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
-import { Package, PhilippinePeso, TrendingUp, AlertTriangle, Calendar, ReceiptText, Plus, TrendingDown, CloudRain } from 'lucide-react';
+import { Package, PhilippinePeso, TrendingUp, AlertTriangle, Calendar, ReceiptText, Plus, TrendingDown, CloudRain, Volume2 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/app/components/ui/table';
 import { ErrorBoundary } from '@/app/components/ErrorBoundary';
 
@@ -94,25 +94,26 @@ export function Dashboard({ currentUser, products }: DashboardProps) {
     setLowStockProducts(lowStockItems);
     setOutOfStockProducts(outOfStockItems);
 
-    // Manage alert triggers
+    // Manage alert triggers - remove legacy permanent localStorage blocks
+    try {
+      localStorage.removeItem('outOfStockDismissed');
+      localStorage.removeItem('lowStockDismissed');
+    } catch (_) {}
+
     const outOfStockIds = outOfStockItems.map(p => p.id).sort().join(',');
-    const lastOutOfStockIds = localStorage.getItem('lastSeenOutOfStockIds');
-    const outOfStockDismissed = localStorage.getItem('outOfStockDismissed') === 'true';
+    const outOfStockDismissed = sessionStorage.getItem('outOfStockDismissed') === 'true';
 
     const lowStockIds = lowStockItems.map(p => p.id).sort().join(',');
-    const lastLowStockIds = localStorage.getItem('lastSeenLowStockIds');
-    const lowStockDismissed = localStorage.getItem('lowStockDismissed') === 'true';
+    const lowStockDismissed = sessionStorage.getItem('lowStockDismissed') === 'true';
 
-    // Check Out of Stock first (High Priority)
-    const shouldShowOOS = outOfStockItems.length > 0 && (!outOfStockDismissed || outOfStockIds !== lastOutOfStockIds);
+    // 1. Check Out of Stock first (Critical Priority)
+    const shouldShowOOS = outOfStockItems.length > 0 && !outOfStockDismissed;
 
     if (shouldShowOOS) {
       setShowOutOfStockAlert(true);
       setShowLowStockAlert(false);
-      localStorage.removeItem('outOfStockDismissed');
-      localStorage.setItem('lastSeenOutOfStockIds', outOfStockIds);
 
-      // Only trigger speak if the IDs actually changed or if not already showing in this session
+      // Trigger voice alert if not already speaking for these IDs
       if (outOfStockIds !== spokenOOSRef.current) {
         spokenOOSRef.current = outOfStockIds;
         speak([
@@ -122,16 +123,14 @@ export function Dashboard({ currentUser, products }: DashboardProps) {
         ], { loop: true });
       }
     } else {
-      // If OOS is not showing, check Low Stock
-      const shouldShowLow = lowStockItems.length > 0 && (!lowStockDismissed || lowStockIds !== lastLowStockIds);
+      // 2. Check Low Stock if Out of Stock is not currently displaying
+      const shouldShowLow = lowStockItems.length > 0 && !lowStockDismissed;
 
       if (shouldShowLow) {
         setShowLowStockAlert(true);
         setShowOutOfStockAlert(false);
-        localStorage.removeItem('lowStockDismissed');
-        localStorage.setItem('lastSeenLowStockIds', lowStockIds);
 
-        // Only trigger speak if the IDs actually changed or if not already showing
+        // Trigger voice alert if not already speaking for these IDs
         if (lowStockIds !== spokenLowRef.current) {
           spokenLowRef.current = lowStockIds;
           speak([
@@ -141,15 +140,10 @@ export function Dashboard({ currentUser, products }: DashboardProps) {
           ], { loop: true });
         }
       } else {
-        // Reset Ref if lists are now empty (so they trigger again if items reappear)
         if (outOfStockItems.length === 0) {
-          localStorage.removeItem('lastSeenOutOfStockIds');
           spokenOOSRef.current = null;
-          // Only stop if we were actually showing this alert
-          // (stopSpeaking is handles by Acknowledge button too)
         }
         if (lowStockItems.length === 0) {
-          localStorage.removeItem('lastSeenLowStockIds');
           spokenLowRef.current = null;
         }
       }
@@ -459,23 +453,39 @@ export function Dashboard({ currentUser, products }: DashboardProps) {
               ))}
             </div>
 
-            <AlertDialogAction
-              className="w-full font-bold uppercase tracking-widest py-7 shadow-lg hover:brightness-105 transition-all border-none"
-              style={{
-                backgroundColor: '#ef4444',
-                color: 'white',
-                borderRadius: '1rem',
-                fontSize: '1rem'
-              }}
-              onClick={() => {
-                stopSpeaking();
-                setShowOutOfStockAlert(false);
-                localStorage.setItem('outOfStockDismissed', 'true');
-                setTimeout(loadData, 100); // Check for Low Stock alert after dismissal
-              }}
-            >
-              Acknowledge
-            </AlertDialogAction>
+            <div className="flex flex-col gap-2.5 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full font-bold uppercase tracking-wider py-5 border-red-200 text-red-700 bg-white hover:bg-red-50 flex items-center justify-center gap-2 rounded-xl text-sm shadow-xs cursor-pointer"
+                onClick={() => {
+                  speak([
+                    "Critical Alert!",
+                    "The following products are out of stock:",
+                    ...outOfStockProducts.map(p => ({ text: p.name || 'Unknown Product', pause: 300 }))
+                  ], { loop: false });
+                }}
+              >
+                <Volume2 className="size-4" />
+                Play Voice Alert
+              </Button>
+              <AlertDialogAction
+                className="w-full font-bold uppercase tracking-widest py-6 shadow-lg hover:brightness-105 transition-all border-none text-white text-base cursor-pointer"
+                style={{
+                  backgroundColor: '#ef4444',
+                  borderRadius: '0.75rem',
+                }}
+                onClick={() => {
+                  stopSpeaking();
+                  setShowOutOfStockAlert(false);
+                  sessionStorage.setItem('outOfStockDismissed', 'true');
+                  spokenOOSRef.current = null;
+                  setTimeout(loadData, 150); // Check for Low Stock alert after dismissal
+                }}
+              >
+                Acknowledge
+              </AlertDialogAction>
+            </div>
           </AlertDialogContent>
         </AlertDialog>
 
@@ -516,23 +526,39 @@ export function Dashboard({ currentUser, products }: DashboardProps) {
               ))}
             </div>
 
-            <AlertDialogAction
-              className="w-full font-bold uppercase tracking-widest py-7 shadow-lg hover:brightness-105 transition-all border-none"
-              style={{
-                backgroundColor: '#f97316',
-                color: 'white',
-                borderRadius: '1rem',
-                fontSize: '1rem'
-              }}
-              onClick={() => {
-                stopSpeaking();
-                setShowLowStockAlert(false);
-                localStorage.setItem('lowStockDismissed', 'true');
-                setTimeout(loadData, 100);
-              }}
-            >
-              Acknowledge
-            </AlertDialogAction>
+            <div className="flex flex-col gap-2.5 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full font-bold uppercase tracking-wider py-5 border-orange-200 text-orange-700 bg-white hover:bg-orange-50 flex items-center justify-center gap-2 rounded-xl text-sm shadow-xs cursor-pointer"
+                onClick={() => {
+                  speak([
+                    "Low Stock Alert.",
+                    "The following products are low on stock:",
+                    ...lowStockProducts.map(p => ({ text: p.name || 'Unknown Product', pause: 300 }))
+                  ], { loop: false });
+                }}
+              >
+                <Volume2 className="size-4" />
+                Play Voice Alert
+              </Button>
+              <AlertDialogAction
+                className="w-full font-bold uppercase tracking-widest py-6 shadow-lg hover:brightness-105 transition-all border-none text-white text-base cursor-pointer"
+                style={{
+                  backgroundColor: '#f97316',
+                  borderRadius: '0.75rem',
+                }}
+                onClick={() => {
+                  stopSpeaking();
+                  setShowLowStockAlert(false);
+                  sessionStorage.setItem('lowStockDismissed', 'true');
+                  spokenLowRef.current = null;
+                  setTimeout(loadData, 150);
+                }}
+              >
+                Acknowledge
+              </AlertDialogAction>
+            </div>
           </AlertDialogContent>
         </AlertDialog>
 

@@ -592,7 +592,34 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
         setAmountReceived('');
         setCompletedTransaction(transaction);
         toast.success('Transaction completed successfully!');
-        speak('Transaction complete');
+
+        // Check if any sold products reached out of stock or low stock
+        const newlyOOS = updatedProducts.filter(p =>
+          cart.some(c => c.product.id === p.id) &&
+          (Number(p.quantity) + Number(p.newStockQuantity || 0)) === 0
+        );
+        const newlyLow = updatedProducts.filter(p =>
+          cart.some(c => c.product.id === p.id) &&
+          (Number(p.quantity) + Number(p.newStockQuantity || 0)) > 0 &&
+          (Number(p.quantity) + Number(p.newStockQuantity || 0)) <= p.reorderLevel
+        );
+
+        if (newlyOOS.length > 0) {
+          const names = newlyOOS.map(p => p.name).join(', ');
+          speak([
+            'Transaction complete',
+            { text: `Critical alert: ${names} is now out of stock!`, pause: 300 }
+          ]);
+        } else if (newlyLow.length > 0) {
+          const names = newlyLow.map(p => p.name).join(', ');
+          speak([
+            'Transaction complete',
+            { text: `Notice: ${names} is low on stock.`, pause: 300 }
+          ]);
+        } else {
+          speak('Transaction complete');
+        }
+
         setSearchQuery('');
 
         // Selection of item summary for audit

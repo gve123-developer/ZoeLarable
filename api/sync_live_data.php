@@ -297,7 +297,19 @@ if (is_array($transactionsData) && !empty($transactionsData)) {
     }
 }
 
-// 4. STATS VERIFICATION
+// 4. ALIGN POSTGRESQL SEQUENCES
+$syncTables = ['transactions', 'transaction_items', 'audit_logs', 'products', 'users', 'categories', 'deleted_products', 'inventory_loss'];
+foreach ($syncTables as $tName) {
+    try {
+        $seq = $conn->query("SELECT pg_get_serial_sequence('$tName', 'id')")->fetchColumn();
+        if ($seq) {
+            $maxVal = (int)$conn->query("SELECT COALESCE(MAX(id), 0) FROM $tName")->fetchColumn();
+            $conn->query("SELECT setval('$seq', " . max($maxVal, 1) . ")");
+        }
+    } catch (Throwable $e) {}
+}
+
+// 5. STATS VERIFICATION
 try {
     $countTotal = $conn->query("SELECT count(*) FROM products")->fetchColumn();
     $countWithExp = $conn->query("SELECT count(*) FROM products WHERE expiry_date IS NOT NULL AND expiry_date != ''")->fetchColumn();
