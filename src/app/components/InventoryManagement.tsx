@@ -468,9 +468,9 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
           dispensingMethod: method,
           imageUrl: formData.imageUrl || null,
           batchNumber,
-          newStockQuantity: formData.newStockQuantity || 0,
-          newStockExpiry: method === 'FIFO' ? null : (formData.newStockExpiry || null),
-          newBatchQueue: formData.newBatchQueue || []
+          newStockQuantity: 0,
+          newStockExpiry: null,
+          newBatchQueue: []
         })
       });
       const data = await response.json();
@@ -1021,30 +1021,6 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                   <div className="space-y-2">
                     <Label htmlFor="reorderLevel">Reorder Level *</Label>
                     <Input id="reorderLevel" type="number" value={formData.reorderLevel || ''} onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })} />
-                  </div>
-                  <div className="col-span-2 p-3 bg-blue-50 border border-blue-100 rounded-lg space-y-3 my-2">
-                    <h4 className="text-xs font-black text-blue-700 uppercase tracking-widest flex items-center gap-2">
-                      <Plus className="size-3" /> New Batch (Incoming Stock Queue)
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="newBatchQuantity" className="text-[10px] uppercase font-bold text-blue-600 tracking-wider">New Batch Qty</Label>
-                        <Input id="newBatchQuantity" type="number" placeholder="Optional" value={formData.newStockQuantity || ''} onChange={(e) => setFormData({ ...formData, newStockQuantity: Number(e.target.value) })} className="bg-white border-blue-200" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="newBatchExpiry" className="text-[10px] uppercase font-bold text-blue-600 tracking-wider">
-                          New Batch Expiry {formData.dispensingMethod === 'FIFO' ? '(N/A - FIFO)' : ''}
-                        </Label>
-                        <Input
-                          id="newBatchExpiry"
-                          type="date"
-                          disabled={formData.dispensingMethod === 'FIFO'}
-                          value={formData.dispensingMethod === 'FIFO' ? '' : (formData.newStockExpiry || '')}
-                          onChange={(e) => setFormData({ ...formData, newStockExpiry: e.target.value })}
-                          className="bg-white border-blue-200"
-                        />
-                      </div>
-                    </div>
                   </div>
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="description">Description</Label>
