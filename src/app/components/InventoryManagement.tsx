@@ -406,7 +406,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
     const sup = (incomingBatchSupplier || (formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
     const arrDate = incomingBatchArrivalDate || new Date().toISOString().split('T')[0];
     const code = (incomingBatchNumber.trim() || formatBatchCode(arrDate, sup)).toUpperCase();
-    const method = (formData.dispensingMethod || (formData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')) as 'FEFO' | 'FIFO';
+    const method = (formData.dispensingMethod || 'FEFO') as 'FEFO' | 'FIFO';
 
     const result = processIncomingBatch({
       oldQty: Number(formData.quantity ?? 0),
@@ -454,7 +454,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
 
     const sup = formData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH';
     const batchNumber = formData.batchNumber?.trim() || getTodayBatchCode(sup);
-    const method = formData.dispensingMethod || (formData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO');
+    const method = formData.dispensingMethod || 'FEFO';
 
     try {
       const response = await fetch('/api/products.php', {
@@ -498,7 +498,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
     const sup = p.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH';
     const todayStr = new Date().toISOString().split('T')[0];
     const initialArrDate = p.createdAt ? p.createdAt.slice(0, 10) : todayStr;
-    const method = (p.dispensingMethod || (p.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')) as 'FEFO' | 'FIFO';
+    const method = (p.dispensingMethod || 'FEFO') as 'FEFO' | 'FIFO';
 
     const initialQueue: BatchItem[] = Array.isArray(p.newBatchQueue) && p.newBatchQueue.length > 0
       ? p.newBatchQueue.map(b => ({
@@ -562,7 +562,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
     let workingData = { ...formData };
     const sup = (incomingBatchSupplier || (workingData.category === 'Pharmaceutical' ? 'UNILAB' : 'GEN-MERCH')).toUpperCase().trim();
     const arrDate = incomingBatchArrivalDate || new Date().toISOString().split('T')[0];
-    const method = (workingData.dispensingMethod || (workingData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')) as 'FEFO' | 'FIFO';
+    const method = (workingData.dispensingMethod || 'FEFO') as 'FEFO' | 'FIFO';
 
     let newlyAddedBatchSummary = '';
 
@@ -764,7 +764,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
   };
 
   const getStockStatus = (product: Product) => {
-    const isFIFO = product.dispensingMethod === 'FIFO' || (!product.expiryDate && product.category !== 'Pharmaceutical');
+    const isFIFO = product.dispensingMethod === 'FIFO';
     const oldQty = Math.max(0, Number(product.quantity));
     const newQty = Math.max(0, Number(product.newStockQuantity || 0));
     const total = oldQty + newQty;
@@ -933,12 +933,9 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                     <Select
                       value={formData.category || ''}
                       onValueChange={(value) => {
-                        const defaultMethod = value === 'Pharmaceutical' ? 'FEFO' : 'FIFO';
                         setFormData({
                           ...formData,
-                          category: value,
-                          dispensingMethod: defaultMethod,
-                          expiryDate: defaultMethod === 'FIFO' ? undefined : formData.expiryDate
+                          category: value
                         });
                       }}
                     >
@@ -951,7 +948,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                   <div className="space-y-2">
                     <Label htmlFor="dispensingMethod">Dispensing Method *</Label>
                     <Select
-                      value={formData.dispensingMethod || (formData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')}
+                      value={formData.dispensingMethod || 'FEFO'}
                       onValueChange={(value: 'FEFO' | 'FIFO') => {
                         setFormData({
                           ...formData,
@@ -1333,7 +1330,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                   <TableBody className="divide-y divide-gray-200">
                     {paginatedProducts.map((product) => {
                       const status = getStockStatus(product);
-                      const isFIFO = product.dispensingMethod === 'FIFO' || (!product.expiryDate && product.category !== 'Pharmaceutical');
+                      const isFIFO = product.dispensingMethod === 'FIFO';
                       return (
                         <TableRow key={product.id} className="hover:bg-gray-50/50 transition-colors">
                           <TableCell className="px-6 py-4 border-r border-gray-200">
@@ -1578,12 +1575,9 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                         <Select
                           value={formData.category || ''}
                           onValueChange={(value) => {
-                            const defaultMethod = value === 'Pharmaceutical' ? 'FEFO' : 'FIFO';
                             setFormData({
                               ...formData,
-                              category: value,
-                              dispensingMethod: defaultMethod,
-                              expiryDate: defaultMethod === 'FIFO' ? undefined : formData.expiryDate
+                              category: value
                             });
                           }}
                         >
@@ -1598,7 +1592,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
                       <div className="space-y-1">
                         <Label htmlFor="edit-dispensingMethod" className="text-[11px] font-bold text-gray-700">Dispensing Method *</Label>
                         <Select
-                          value={formData.dispensingMethod || (formData.category === 'Non-pharmaceutical' ? 'FIFO' : 'FEFO')}
+                          value={formData.dispensingMethod || 'FEFO'}
                           onValueChange={(value: 'FEFO' | 'FIFO') => {
                             setFormData({
                               ...formData,

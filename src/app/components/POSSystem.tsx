@@ -213,7 +213,7 @@ export function POSSystem({ currentUser, products, onProductsChange }: POSSystem
   };
 
   const getSellableStock = (product: Product) => {
-    const isFIFO = product.dispensingMethod === 'FIFO' || (!product.expiryDate && product.category !== 'Pharmaceutical');
+    const isFIFO = product.dispensingMethod === 'FIFO';
     const oldQty = Math.max(0, Number(product.quantity));
     const newQty = Math.max(0, Number(product.newStockQuantity || 0));
 

@@ -271,9 +271,9 @@ if ($method === 'GET') {
                 } catch (Throwable $e) {}
             }
 
-            $dispensingMethod = $row['dispensing_method'] ?? null;
+            $dispensingMethod = $row['dispensing_method'] ?? 'FEFO';
             if (empty($dispensingMethod)) {
-                $dispensingMethod = (strcasecmp($cat, 'Non-pharmaceutical') === 0 || str_starts_with($row['sku'], 'NPH-')) ? 'FIFO' : 'FEFO';
+                $dispensingMethod = 'FEFO';
             }
             $imageUrl = $row['image_url'] ?? null;
 
@@ -418,7 +418,7 @@ elseif ($method === 'POST') {
 
         $dispensing_method = trim($data['dispensingMethod'] ?? '');
         if (empty($dispensing_method)) {
-            $dispensing_method = (strcasecmp($category_name, 'Non-pharmaceutical') === 0 || str_starts_with($sku, 'NPH-')) ? 'FIFO' : 'FEFO';
+            $dispensing_method = 'FEFO';
         }
         $image_url = !empty($data['imageUrl']) ? trim($data['imageUrl']) : null;
 
@@ -763,7 +763,7 @@ elseif ($method === 'PUT') {
 
         $dispensing_method = trim($data['dispensingMethod'] ?? '');
         if (empty($dispensing_method)) {
-            $dispensing_method = (strcasecmp($category_name, 'Non-pharmaceutical') === 0 || str_starts_with($sku, 'NPH-')) ? 'FIFO' : 'FEFO';
+            $dispensing_method = 'FEFO';
         }
         $image_url = isset($data['imageUrl']) ? (trim($data['imageUrl']) ?: null) : null;
 

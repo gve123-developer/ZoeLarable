@@ -97,10 +97,9 @@ export function ExpiryManagement({ currentUser, products, onProductsChange }: Ex
     const handleDispose = async (item: DisposalItem) => {
         const { product, targetBatch, quantityToDispose, costLoss, reason } = item;
         const productName = product.name;
-
         try {
             let updatedPayload: any = { ...product };
-            const isFifo = product.dispensingMethod === 'FIFO' || product.category === 'Non-pharmaceutical';
+            const isFifo = product.dispensingMethod === 'FIFO';
 
             if (targetBatch === 'new') {
                 updatedPayload.newStockQuantity = 0;
