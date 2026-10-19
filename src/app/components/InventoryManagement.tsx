@@ -58,6 +58,24 @@ export const formatBatchCode = (arrivalDate?: string, supplier?: string) => {
   return `${yyyy}${mm}${dd}-${(supplier || 'UNILAB').toUpperCase().trim()}`;
 };
 
+export const extractArrivalDate = (batchNumber?: string | null, explicitDate?: string | null, fallback?: string): string => {
+  if (batchNumber) {
+    const m = batchNumber.trim().match(/^(\d{4})(\d{2})(\d{2})/);
+    if (m) {
+      const y = parseInt(m[1], 10);
+      const mon = parseInt(m[2], 10);
+      const d = parseInt(m[3], 10);
+      if (y >= 2000 && y <= 2100 && mon >= 1 && mon <= 12 && d >= 1 && d <= 31) {
+        return `${m[1]}-${m[2]}-${m[3]}`;
+      }
+    }
+  }
+  if (explicitDate && /^\d{4}-\d{2}-\d{2}/.test(explicitDate)) {
+    return explicitDate.slice(0, 10);
+  }
+  return fallback || new Date().toISOString().split('T')[0];
+};
+
 export const getTodayBatchCode = (supplier?: string) => {
   return formatBatchCode(undefined, supplier);
 };
@@ -78,19 +96,22 @@ export interface ProcessBatchInput {
 
 export function processIncomingBatch(input: ProcessBatchInput) {
   const isFifo = input.dispensingMethod === 'FIFO';
+  const todayStr = new Date().toISOString().split('T')[0];
+  const bInc = (input.incomingBatchNumber || '').trim().toUpperCase();
+  const expInc = isFifo ? undefined : (input.incomingExp ? input.incomingExp.slice(0, 10).trim() : undefined);
+  const arrOld = extractArrivalDate(input.oldBatchNumber, input.oldArrivalDate, todayStr);
+  const arrInc = extractArrivalDate(bInc, input.incomingArrivalDate, todayStr);
+
   let curOld = {
     quantity: Number(input.oldQty || 0),
     expiryDate: isFifo ? undefined : (input.oldExp || undefined),
     batchNumber: input.oldBatchNumber || undefined,
-    arrivalDate: input.oldArrivalDate || input.incomingArrivalDate,
+    arrivalDate: arrOld,
     supplier: input.incomingSupplier
   };
   let curQueue = Array.isArray(input.queue) ? [...input.queue] : [];
   let actionTaken: 'combined_old' | 'swapped_old' | 'combined_queue' | 'queued' | 'set_initial' = 'queued';
   let message = '';
-
-  const bInc = (input.incomingBatchNumber || '').trim().toUpperCase();
-  const expInc = isFifo ? undefined : (input.incomingExp ? input.incomingExp.slice(0, 10).trim() : undefined);
 
   // If active Old batch is empty or has no batch number:
   if (curOld.quantity <= 0 || !curOld.batchNumber) {
@@ -98,7 +119,7 @@ export function processIncomingBatch(input: ProcessBatchInput) {
       batchNumber: bInc,
       quantity: Number(input.incomingQty),
       expiryDate: expInc,
-      arrivalDate: input.incomingArrivalDate,
+      arrivalDate: arrInc,
       supplier: input.incomingSupplier
     };
     actionTaken = 'set_initial';
@@ -115,23 +136,62 @@ export function processIncomingBatch(input: ProcessBatchInput) {
         actionTaken = 'combined_old';
         message = `Combined +${input.incomingQty} pcs into active Old Batch ${bInc} (Same Batch Number)`;
       } else {
-        // Different batch number -> Add to queue (Old arrived first, so Old is consumed first)
-        const qIdx = curQueue.findIndex(b => (b.batchNumber || '').trim().toUpperCase() === bInc);
-        if (qIdx >= 0) {
-          curQueue[qIdx].quantity = Number(curQueue[qIdx].quantity) + Number(input.incomingQty);
-          actionTaken = 'combined_queue';
-          message = `Combined +${input.incomingQty} pcs into queued batch ${bInc}`;
-        } else {
-          curQueue.push({
+        // Different batch number: Compare arrival dates
+        if (arrInc < arrOld) {
+          // Incoming batch actually arrived EARLIER than active Old batch!
+          const formerOld: BatchItem = {
+            batchNumber: curOld.batchNumber || formatBatchCode(curOld.arrivalDate, curOld.supplier),
+            quantity: curOld.quantity,
+            expiryDate: undefined,
+            arrivalDate: arrOld,
+            supplier: curOld.supplier
+          };
+
+          curOld = {
             batchNumber: bInc,
             quantity: Number(input.incomingQty),
             expiryDate: undefined,
-            arrivalDate: input.incomingArrivalDate,
+            arrivalDate: arrInc,
             supplier: input.incomingSupplier
-          });
-          actionTaken = 'queued';
-          message = `Queued new batch ${bInc} (${input.incomingQty} pcs) in FIFO order`;
+          };
+
+          const fCode = (formerOld.batchNumber || '').trim().toUpperCase();
+          const qIdx = curQueue.findIndex(b => (b.batchNumber || '').trim().toUpperCase() === fCode);
+          if (qIdx >= 0) {
+            curQueue[qIdx].quantity = Number(curQueue[qIdx].quantity) + Number(formerOld.quantity);
+          } else {
+            curQueue.push(formerOld);
+          }
+
+          actionTaken = 'swapped_old';
+          message = `FIFO Rotation Applied: Incoming batch ${bInc} arrived earlier (${arrInc} vs ${arrOld}). Swapped into active Old Batch; former batch moved to queue.`;
+        } else {
+          // Incoming batch arrived later or same day -> Add to queue (Old batch stays as active)
+          const qIdx = curQueue.findIndex(b => (b.batchNumber || '').trim().toUpperCase() === bInc);
+          if (qIdx >= 0) {
+            curQueue[qIdx].quantity = Number(curQueue[qIdx].quantity) + Number(input.incomingQty);
+            actionTaken = 'combined_queue';
+            message = `Combined +${input.incomingQty} pcs into queued batch ${bInc}`;
+          } else {
+            curQueue.push({
+              batchNumber: bInc,
+              quantity: Number(input.incomingQty),
+              expiryDate: undefined,
+              arrivalDate: arrInc,
+              supplier: input.incomingSupplier
+            });
+            actionTaken = 'queued';
+            message = `Queued incoming batch ${bInc} (${input.incomingQty} pcs, Arrived: ${arrInc}) in FIFO order`;
+          }
         }
+
+        // Sort FIFO queue chronologically by arrival date
+        curQueue.sort((a, b) => {
+          const aArr = extractArrivalDate(a.batchNumber, a.arrivalDate, todayStr);
+          const bArr = extractArrivalDate(b.batchNumber, b.arrivalDate, todayStr);
+          if (aArr !== bArr) return aArr.localeCompare(bArr);
+          return (a.batchNumber || '').localeCompare(b.batchNumber || '');
+        });
       }
     } else {
       // FEFO Logic:
@@ -253,24 +313,28 @@ export function alignBatchesFEFO(
   const allBatches: BatchItem[] = [];
 
   if (Number(oldQty) > 0) {
+    const bCode = oldBatchNumber || formatBatchCode(todayStr, defaultSupplier);
+    const arrDate = extractArrivalDate(bCode, undefined, todayStr);
     allBatches.push({
-      batchNumber: oldBatchNumber || formatBatchCode(todayStr, defaultSupplier),
+      batchNumber: bCode,
       supplier: defaultSupplier,
       quantity: Number(oldQty),
       expiryDate: isFifo ? undefined : (oldExp || undefined),
-      arrivalDate: todayStr
+      arrivalDate: arrDate
     });
   }
 
   if (Array.isArray(queue)) {
     for (const item of queue) {
       if (Number(item.quantity) > 0) {
+        const bCode = item.batchNumber || formatBatchCode(item.arrivalDate || todayStr, item.supplier || defaultSupplier);
+        const arrDate = extractArrivalDate(bCode, item.arrivalDate, todayStr);
         allBatches.push({
-          batchNumber: item.batchNumber || formatBatchCode(item.arrivalDate || todayStr, item.supplier || defaultSupplier),
+          batchNumber: bCode,
           supplier: item.supplier || defaultSupplier,
           quantity: Number(item.quantity),
           expiryDate: isFifo ? undefined : (item.expiryDate || undefined),
-          arrivalDate: item.arrivalDate || todayStr
+          arrivalDate: arrDate
         });
       }
     }
@@ -306,7 +370,17 @@ export function alignBatchesFEFO(
     }
   }
 
-  if (!isFifo) {
+  if (isFifo) {
+    // FIFO order: Earliest arrival date first (First In, First Out)
+    merged.sort((a, b) => {
+      const arrA = extractArrivalDate(a.batchNumber, a.arrivalDate, todayStr);
+      const arrB = extractArrivalDate(b.batchNumber, b.arrivalDate, todayStr);
+      if (arrA !== arrB) {
+        return arrA.localeCompare(arrB);
+      }
+      return (a.batchNumber || '').localeCompare(b.batchNumber || '');
+    });
+  } else {
     // FEFO order: Earliest expiration date first
     merged.sort((a, b) => {
       const expA = a.expiryDate && a.expiryDate.trim() ? a.expiryDate.trim() : '9999-12-31';
@@ -314,8 +388,8 @@ export function alignBatchesFEFO(
       if (expA !== expB) {
         return expA.localeCompare(expB);
       }
-      const arrA = a.arrivalDate || '';
-      const arrB = b.arrivalDate || '';
+      const arrA = extractArrivalDate(a.batchNumber, a.arrivalDate, todayStr);
+      const arrB = extractArrivalDate(b.batchNumber, b.arrivalDate, todayStr);
       return arrA.localeCompare(arrB);
     });
   }
@@ -412,6 +486,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
       oldQty: Number(formData.quantity ?? 0),
       oldExp: formData.expiryDate,
       oldBatchNumber: formData.batchNumber,
+      oldArrivalDate: extractArrivalDate(formData.batchNumber),
       queue: Array.isArray(formData.newBatchQueue) ? [...formData.newBatchQueue] : [],
       incomingQty: Number(incomingBatchQty),
       incomingExp: incomingBatchExp,
@@ -572,6 +647,7 @@ export function InventoryManagement({ currentUser, products, onProductsChange }:
         oldQty: Number(workingData.quantity ?? 0),
         oldExp: workingData.expiryDate,
         oldBatchNumber: workingData.batchNumber,
+        oldArrivalDate: extractArrivalDate(workingData.batchNumber),
         queue: Array.isArray(workingData.newBatchQueue) ? [...workingData.newBatchQueue] : [],
         incomingQty: Number(incomingBatchQty),
         incomingExp: incomingBatchExp,

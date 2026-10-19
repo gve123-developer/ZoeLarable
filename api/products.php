@@ -55,29 +55,49 @@ function get_smart_supplier($name, $category = '') {
     return 'UNILAB';
 }
 
+function extract_batch_arrival_date($batchNumber, $explicitArrivalDate = null, $fallback = null) {
+    $b = trim((string)$batchNumber);
+    if (preg_match('/^(\d{4})(\d{2})(\d{2})/', $b, $m)) {
+        $y = (int)$m[1];
+        $mon = (int)$m[2];
+        $d = (int)$m[3];
+        if ($y >= 2000 && $y <= 2100 && $mon >= 1 && $mon <= 12 && $d >= 1 && $d <= 31) {
+            return sprintf('%04d-%02d-%02d', $y, $mon, $d);
+        }
+    }
+    if (!empty($explicitArrivalDate) && preg_match('/^\d{4}-\d{2}-\d{2}/', $explicitArrivalDate)) {
+        return substr($explicitArrivalDate, 0, 10);
+    }
+    return !empty($fallback) ? substr($fallback, 0, 10) : date('Y-m-d');
+}
+
 function align_product_batches(&$qty, &$expiry, &$batchNumber, &$queue, $supplier, $createdDateCode, $createdDateFull, $dispensingMethod = 'FEFO') {
     $isFifo = ($dispensingMethod === 'FIFO');
 
     $allBatches = [];
     if ($qty > 0) {
+        $bCode = $batchNumber ?: ($createdDateCode . '-' . $supplier);
+        $bArr = extract_batch_arrival_date($bCode, null, $createdDateFull);
         $allBatches[] = [
-            'batchNumber' => $batchNumber ?: ($createdDateCode . '-' . $supplier),
+            'batchNumber' => $bCode,
             'supplier' => $supplier,
             'quantity' => (int)$qty,
             'expiryDate' => $isFifo ? null : $expiry,
-            'arrivalDate' => $createdDateFull
+            'arrivalDate' => $bArr
         ];
     }
     if (is_array($queue)) {
         foreach ($queue as $item) {
             $iqty = (int)($item['quantity'] ?? 0);
             if ($iqty > 0) {
+                $bCode = $item['batchNumber'] ?? ($createdDateCode . '-' . $supplier);
+                $bArr = extract_batch_arrival_date($bCode, $item['arrivalDate'] ?? null, $createdDateFull);
                 $allBatches[] = [
-                    'batchNumber' => $item['batchNumber'] ?? ($createdDateCode . '-' . $supplier),
+                    'batchNumber' => $bCode,
                     'supplier' => $item['supplier'] ?? $supplier,
                     'quantity' => $iqty,
                     'expiryDate' => $isFifo ? null : (!empty($item['expiryDate']) ? $item['expiryDate'] : null),
-                    'arrivalDate' => $item['arrivalDate'] ?? $createdDateFull
+                    'arrivalDate' => $bArr
                 ];
             }
         }
@@ -119,11 +139,14 @@ function align_product_batches(&$qty, &$expiry, &$batchNumber, &$queue, $supplie
     }
 
     if ($isFifo) {
-        // FIFO order: Earliest arrival date first
+        // FIFO order: Earliest arrival date first (First In, First Out)
         usort($mergedBatches, function($a, $b) {
-            $arrA = !empty($a['arrivalDate']) ? $a['arrivalDate'] : '';
-            $arrB = !empty($b['arrivalDate']) ? $b['arrivalDate'] : '';
-            return strcmp($arrA, $arrB);
+            $arrA = extract_batch_arrival_date($a['batchNumber'] ?? '', $a['arrivalDate'] ?? '', '9999-12-31');
+            $arrB = extract_batch_arrival_date($b['batchNumber'] ?? '', $b['arrivalDate'] ?? '', '9999-12-31');
+            if ($arrA !== $arrB) {
+                return strcmp($arrA, $arrB);
+            }
+            return strcmp($a['batchNumber'] ?? '', $b['batchNumber'] ?? '');
         });
     } else {
         // FEFO order: Earliest expiry date first
@@ -133,8 +156,8 @@ function align_product_batches(&$qty, &$expiry, &$batchNumber, &$queue, $supplie
             if ($expA !== $expB) {
                 return strcmp($expA, $expB);
             }
-            $arrA = !empty($a['arrivalDate']) ? $a['arrivalDate'] : '';
-            $arrB = !empty($b['arrivalDate']) ? $b['arrivalDate'] : '';
+            $arrA = extract_batch_arrival_date($a['batchNumber'] ?? '', $a['arrivalDate'] ?? '', '9999-12-31');
+            $arrB = extract_batch_arrival_date($b['batchNumber'] ?? '', $b['arrivalDate'] ?? '', '9999-12-31');
             return strcmp($arrA, $arrB);
         });
     }
